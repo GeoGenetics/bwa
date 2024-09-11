@@ -43,7 +43,7 @@ typedef struct {
 extern int g_log_n[256]; // in bwase.c
 static kh_b128_t *g_hash;
 
-void bwa_aln2seq_core(int n_aln, const bwt_aln1_t *aln, bwa_seq_t *s, int set_main, int n_multi);
+int bwa_aln2seq_core(int n_aln, const bwt_aln1_t *aln, bwa_seq_t *s, int set_main, int n_multi);
 void bwa_aln2seq(int n_aln, const bwt_aln1_t *aln, bwa_seq_t *s);
 int bwa_approx_mapQ(const bwa_seq_t *p, int mm);
 void bwa_print_sam1(const bntseq_t *bns, bwa_seq_t *p, const bwa_seq_t *mate, int mode, int max_top2);
@@ -692,7 +692,7 @@ void bwa_sai2sam_pe_core(const char *prefix, char *const fn_sa[2], char *const f
 
 		fprintf(stderr, "[bwa_sai2sam_pe_core] refine gapped alignments... ");
 		for (j = 0; j < 2; ++j)
-			bwa_refine_gapped(bns, n_seqs, seqs[j], pacseq);
+        bwa_refine_gapped(0, bns, n_seqs, seqs[j], pacseq, 0);
 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC); t = clock();
 		if (pac == 0) free(pacseq);
 
