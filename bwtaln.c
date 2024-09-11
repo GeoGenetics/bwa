@@ -280,7 +280,7 @@ void bwa_aln_core(const char *prefix, const char *fn_fa, const gap_opt_t *opt)
             free(data); free(tid);
         }
         #else
-        bwa_cal_pac_pos(bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 0);
+        bwa_cal_pac_pos(bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 1);
         #endif
         fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 
@@ -288,7 +288,7 @@ void bwa_aln_core(const char *prefix, const char *fn_fa, const gap_opt_t *opt)
         fprintf(stderr, "[%s] refine gapped alignments... ", __func__);
         #ifdef HAVE_PTHREAD
         if (opt->n_threads <= 1)
-            bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 0);
+            bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
         else {
             pthread_t *tid;
             pthread_attr_t attr;
@@ -312,7 +312,7 @@ void bwa_aln_core(const char *prefix, const char *fn_fa, const gap_opt_t *opt)
 
         }
         #else
-        bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 0);
+        bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
         #endif
         fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 
