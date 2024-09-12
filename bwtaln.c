@@ -144,7 +144,7 @@ void bwa_cal_sa_reg_gap(int tid,
                          p->aln,
                          p,
                          1,
-                         500);
+                         100);
     }
     free(seed_w); free(w);
     gap_destroy_stack(stack);
@@ -166,6 +166,19 @@ static void *worker(void *data)
 {
     thread_aux_t *d = (thread_aux_t*)data;
     bwa_cal_sa_reg_gap(d->tid, d->bwt, d->n_seqs, d->seqs, d->opt);
+    if (0==d->tid)
+        fprintf(stderr, "[%s] convert to sequence coordinate... ", __func__);
+    bwa_cal_pac_pos(d->tid,
+                    d->bns,
+                    d->prefix,
+                    d->n_seqs,
+                    d->seqs,
+                    d->opt->max_diff,
+                    d->opt->fnr,
+                    d->opt->n_threads);
+    if (0==d->tid)
+        fprintf(stderr, "[%s] refine gapped alignments... ", __func__);
+    bwa_refine_gapped(d->tid, d->bns, d->n_seqs, d->seqs, d->pacseq, d->opt->n_threads);
     return 0;
 }
 
@@ -243,61 +256,6 @@ void bwa_aln_core(const char *prefix, const char *fn_fa, const gap_opt_t *opt)
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
             data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
             tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
-            for (j = 0; j < opt->n_threads; ++j) {
-                data[j].tid = j; data[j].bwt = bwt;
-                data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
-                pthread_create(&tid[j], &attr, worker, data + j);
-            }
-            for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
-            free(data); free(tid);
-        }
-        #else
-        bwa_cal_sa_reg_gap(0, bwt, n_seqs, seqs, opt);
-        #endif
-        fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-
-        t = clock();
-        fprintf(stderr, "[%s] convert to sequence coordinate... ", __func__);
-        #ifdef HAVE_PTHREAD
-        if (opt->n_threads <= 1)
-            bwa_cal_pac_pos(0, bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 1);
-        else {
-            pthread_t *tid;
-            pthread_attr_t attr;
-            thread_aux_t *data;
-            int j;
-            pthread_attr_init(&attr);
-            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-            data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
-            tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
-            for (j = 0; j < opt->n_threads; ++j) {
-                data[j].tid = j; data[j].bwt = bwt;
-                data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
-                data[j].bns = bns; data[j].prefix = prefix;
-                pthread_create(&tid[j], &attr, worker2, data + j);
-            }
-            for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
-            free(data); free(tid);
-        }
-        #else
-        bwa_cal_pac_pos(bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 1);
-        #endif
-        fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-
-        t = clock();
-        fprintf(stderr, "[%s] refine gapped alignments... ", __func__);
-        #ifdef HAVE_PTHREAD
-        if (opt->n_threads <= 1)
-            bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
-        else {
-            pthread_t *tid;
-            pthread_attr_t attr;
-            thread_aux_t *data;
-            int j;
-            pthread_attr_init(&attr);
-            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-            data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
-            tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
             ubyte_t *pacseq = calloc(bns->l_pac/4+1, 1);
             err_rewind(bns->fp_pac);
             err_fread_noeof(pacseq, 1, bns->l_pac/4+1, bns->fp_pac);
@@ -305,27 +263,82 @@ void bwa_aln_core(const char *prefix, const char *fn_fa, const gap_opt_t *opt)
                 data[j].tid = j; data[j].bwt = bwt;
                 data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
                 data[j].bns = bns; data[j].prefix = prefix; data[j].pacseq = pacseq;
-                pthread_create(&tid[j], &attr, worker3, data + j);
+                pthread_create(&tid[j], &attr, worker, data + j);
             }
             for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
             free(data); free(tid); free(pacseq);
-
         }
         #else
-        bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
+        bwa_cal_sa_reg_gap(0, bwt, n_seqs, seqs, opt);
         #endif
         fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+
+        //t = clock();
+        //fprintf(stderr, "[%s] convert to sequence coordinate... ", __func__);
+        //#ifdef HAVE_PTHREAD
+        //if (opt->n_threads <= 1) {
+        //    bwa_cal_pac_pos(0, bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 1);
+        //}
+        //else {
+        //    pthread_t *tid;
+        //    pthread_attr_t attr;
+        //    thread_aux_t *data;
+        //    int j;
+        //    pthread_attr_init(&attr);
+        //    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+        //    data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
+        //   tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
+        //    for (j = 0; j < opt->n_threads; ++j) {
+        //        data[j].tid = j; data[j].bwt = bwt;
+        //        data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
+        //        data[j].bns = bns; data[j].prefix = prefix;
+        //        pthread_create(&tid[j], &attr, worker2, data + j);
+        //    }
+        //    for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
+        //    free(data); free(tid);
+        //}
+        //#else
+        //bwa_cal_pac_pos(bns, prefix, n_seqs, seqs, opt->max_diff, opt->fnr, 1);
+        //#endif
+        //fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+
+        //t = clock();
+        //fprintf(stderr, "[%s] refine gapped alignments... ", __func__);
+        //#ifdef HAVE_PTHREAD
+        //if (opt->n_threads <= 1) {
+        //    bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
+        //}
+        //else {
+        //    pthread_t *tid;
+        //    pthread_attr_t attr;
+        //    thread_aux_t *data;
+        //    int j;
+        //    pthread_attr_init(&attr);
+        //    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+        //    data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
+        //    tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
+        //    ubyte_t *pacseq = calloc(bns->l_pac/4+1, 1);
+        //    err_rewind(bns->fp_pac);
+        //    err_fread_noeof(pacseq, 1, bns->l_pac/4+1, bns->fp_pac);
+        //    for (j = 0; j < opt->n_threads; ++j) {
+        //        data[j].tid = j; data[j].bwt = bwt;
+        //        data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
+        //        data[j].bns = bns; data[j].prefix = prefix; data[j].pacseq = pacseq;
+        //        pthread_create(&tid[j], &attr, worker3, data + j);
+        //    }
+        //    for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
+        //    free(data); free(tid); free(pacseq);
+        //
+        //}
+        //#else
+        //bwa_refine_gapped(0, bns, n_seqs, seqs, 0, 1);
+        //#endif
+        //fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 
         t = clock();
         fprintf(stderr, "[%s] print alignments... ", __func__);
         for (i = 0; i < n_seqs; ++i)
             bwa_print_sam1(bns, seqs + i, 0, opt->mode, opt->max_top2);
-        //fprintf(stderr, "[bwa_aln_core] write to the disk... ");
-        //for (i = 0; i < n_seqs; ++i) {
-        //    bwa_seq_t *p = seqs + i;
-        //    err_fwrite(&p->n_aln, 4, 1, stdout);
-        //    if (p->n_aln) err_fwrite(p->aln, sizeof(bwt_aln1_t), p->n_aln, stdout);
-        //}
         fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
         bwa_free_read_seq(n_seqs, seqs);
         fprintf(stderr, "[bwa_aln_core] %lld sequences have been processed.\n", tot_seqs);
