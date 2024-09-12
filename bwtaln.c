@@ -188,6 +188,7 @@ static void *worker2(void *data)
     thread_aux_t *d = (thread_aux_t*)data;
     bwa_cal_pac_pos(d->tid,
                     d->bns,
+                    d->bwt,
                     d->prefix,
                     d->n_seqs,
                     d->seqs,
