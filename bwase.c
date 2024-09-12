@@ -169,11 +169,6 @@ int bwa_cal_pac_pos(int tid,
                     int n_threads)
 {
     int i, j, strand, n_multi, t_multi = 0;
-    //char str[1024];
-    //bwt_t *bwt;
-    // load forward SA
-    //strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
-    //strcpy(str, prefix); strcat(str, ".sa");   bwt_restore_sa(str, bwt);
     for (i = 0; i != n_seqs; ++i) {
         bwa_seq_t *p = &seqs[i];
         #ifdef HAVE_PTHREAD
@@ -303,7 +298,6 @@ char *bwa_cal_md1(int n_cigar,
 void bwa_correct_trimmed(bwa_seq_t *s)
 {
     if (s->len == s->full_len) return;
-    fprintf(stderr, "TRIMMED\n");
     if (s->strand == 0) { // forward
         if (s->cigar && __cigar_op(s->cigar[s->n_cigar-1]) == FROM_S) { // the last is S
             s->cigar[s->n_cigar-1] += s->full_len - s->len;
@@ -442,56 +436,56 @@ int bwa_refine_gapped(int tid,
 
 int64_t pos_end(const bwa_seq_t *p)
 {
-	if (p->cigar) {
-		int j;
-		int64_t x = p->pos;
-		for (j = 0; j != p->n_cigar; ++j) {
-			int op = __cigar_op(p->cigar[j]);
-			if (op == 0 || op == 2) x += __cigar_len(p->cigar[j]);
-		}
-		return x;
-	} else return p->pos + p->len;
+    if (p->cigar) {
+        int j;
+        int64_t x = p->pos;
+        for (j = 0; j != p->n_cigar; ++j) {
+            int op = __cigar_op(p->cigar[j]);
+            if (op == 0 || op == 2) x += __cigar_len(p->cigar[j]);
+        }
+        return x;
+    } else return p->pos + p->len;
 }
 
 int64_t pos_end_multi(const bwt_multi1_t *p, int len) // analogy to pos_end()
 {
-	if (p->cigar) {
-		int j;
-		int64_t x = p->pos;
-		for (j = 0; j != p->n_cigar; ++j) {
-			int op = __cigar_op(p->cigar[j]);
-			if (op == 0 || op == 2) x += __cigar_len(p->cigar[j]);
-		}
-		return x;
-	} else return p->pos + len;
+    if (p->cigar) {
+        int j;
+        int64_t x = p->pos;
+        for (j = 0; j != p->n_cigar; ++j) {
+            int op = __cigar_op(p->cigar[j]);
+            if (op == 0 || op == 2) x += __cigar_len(p->cigar[j]);
+        }
+        return x;
+    } else return p->pos + len;
 }
 
 static int64_t pos_5(const bwa_seq_t *p)
 {
-	if (p->type != BWA_TYPE_NO_MATCH)
-		return p->strand? pos_end(p) : p->pos;
-	return -1;
+    if (p->type != BWA_TYPE_NO_MATCH)
+        return p->strand? pos_end(p) : p->pos;
+    return -1;
 }
 
 void bwa_print_seq(FILE *stream, bwa_seq_t *seq)
 {
-	char buffer[4096];
-	const int bsz = sizeof(buffer);
-	int i, j, l;
-	
-	if (seq->strand == 0) {
-		for (i = 0; i < seq->full_len; i += bsz) {
-			l = seq->full_len - i > bsz ? bsz : seq->full_len - i;
-			for (j = 0; j < l; j++) buffer[j] = "ACGTN"[seq->seq[i + j]];
-			err_fwrite(buffer, 1, l, stream);
-		}
-	} else {
-		for (i = seq->full_len - 1; i >= 0; i -= bsz) {
-			l = i + 1 > bsz ? bsz : i + 1;
-			for (j = 0; j < l; j++) buffer[j] = "TGCAN"[seq->seq[i - j]];
-			err_fwrite(buffer, 1, l, stream);
-		}
-	}
+    char buffer[4096];
+    const int bsz = sizeof(buffer);
+    int i, j, l;
+    
+    if (seq->strand == 0) {
+        for (i = 0; i < seq->full_len; i += bsz) {
+            l = seq->full_len - i > bsz ? bsz : seq->full_len - i;
+            for (j = 0; j < l; j++) buffer[j] = "ACGTN"[seq->seq[i + j]];
+            err_fwrite(buffer, 1, l, stream);
+        }
+    } else {
+        for (i = seq->full_len - 1; i >= 0; i -= bsz) {
+            l = i + 1 > bsz ? bsz : i + 1;
+            for (j = 0; j < l; j++) buffer[j] = "TGCAN"[seq->seq[i - j]];
+            err_fwrite(buffer, 1, l, stream);
+        }
+    }
 }
 
 void bwa_print_sam1(const bntseq_t *bns,
@@ -598,6 +592,7 @@ void bwa_print_sam1(const bntseq_t *bns,
         }
         err_putchar('\n');
     }
+    /*
     else {
         // this read has no match
         //ubyte_t *s = p->strand? p->rseq : p->seq;
@@ -617,6 +612,7 @@ void bwa_print_sam1(const bntseq_t *bns,
         if (p->clip_len < p->full_len) err_printf("\tXC:i:%d", p->clip_len);
         err_putchar('\n');
     }
+    */
 }
 
 void bwase_initialize()
