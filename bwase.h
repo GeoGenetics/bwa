@@ -14,6 +14,7 @@ extern "C" {
     // Calculate the approximate position of the sequence from the specified bwt with loaded suffix array.
     int bwa_cal_pac_pos(int tid,
                         const bntseq_t *bns,
+                        const bwt_t *bwt,
                         const char *prefix,
                         int n_seqs,
                         bwa_seq_t *seqs,

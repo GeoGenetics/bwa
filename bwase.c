@@ -160,6 +160,7 @@ void bwa_cal_pac_pos_core(const bntseq_t *bns,
 
 int bwa_cal_pac_pos(int tid,
                     const bntseq_t *bns,
+                    const bwt_t *bwt,
                     const char *prefix,
                     int n_seqs,
                     bwa_seq_t *seqs,
@@ -168,11 +169,11 @@ int bwa_cal_pac_pos(int tid,
                     int n_threads)
 {
     int i, j, strand, n_multi, t_multi = 0;
-    char str[1024];
-    bwt_t *bwt;
+    //char str[1024];
+    //bwt_t *bwt;
     // load forward SA
-    strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
-    strcpy(str, prefix); strcat(str, ".sa");   bwt_restore_sa(str, bwt);
+    //strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
+    //strcpy(str, prefix); strcat(str, ".sa");   bwt_restore_sa(str, bwt);
     for (i = 0; i != n_seqs; ++i) {
         bwa_seq_t *p = &seqs[i];
         #ifdef HAVE_PTHREAD
@@ -190,7 +191,7 @@ int bwa_cal_pac_pos(int tid,
         p->n_multi = n_multi;
         t_multi += n_multi;
     }
-    bwt_destroy(bwt);
+    //bwt_destroy(bwt);
     return t_multi;
 }
 
@@ -678,7 +679,7 @@ void bwa_sai2sam_se_core(const char *prefix,
         fprintf(stderr, "[JULIAN %s] %d extra hits\n", __func__, occ);
         fprintf(stderr, "[bwa_aln_core] convert to sequence coordinate...");
         // forward bwt will be destroyed here
-        occ = bwa_cal_pac_pos(0, bns, prefix, n_seqs, seqs, opt.max_diff, opt.fnr, 0);
+        occ = bwa_cal_pac_pos(0, bns, NULL, prefix, n_seqs, seqs, opt.max_diff, opt.fnr, 0);
         fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC); t = clock();
         fprintf(stderr, "[JULIAN %s] %d extra hits\n", __func__, occ);
         fprintf(stderr, "[bwa_aln_core] refine gapped alignments... ");
