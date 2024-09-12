@@ -27,7 +27,6 @@ int bwa_aln2seq_core(int n_aln,
 {
     int i, cnt, best;
     if (n_aln == 0) {
-        fprintf(stderr, "HERE\n");
         s->type = BWA_TYPE_NO_MATCH;
         s->c1 = s->c2 = 0;
         return 0;
