@@ -13,6 +13,112 @@
 #include "bwtgap.h"
 #include "utils.h"
 #include "bwa.h"
+#include "kthread.h"
+
+//From bwtaln.c
+bwa_seqio_t *bwa_open_reads(int mode, const char *fn_fa);
+int bwt_cal_width(const bwt_t *bwt, int len, const ubyte_t *str, bwt_width_t *width);
+
+void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
+                         bwa_seq_t *p,
+                         const gap_opt_t *opt)
+{
+    int j, max_l = 0, max_len = p->len;
+    gap_stack_t *stack;
+    bwt_width_t *w, *seed_w;
+    gap_opt_t local_opt = *opt;
+    // initiate priority stack
+    if (opt->fnr > 0.0)
+        local_opt.max_diff = bwa_cal_maxdiff(max_len, BWA_AVG_ERR, opt->fnr);
+    if (local_opt.max_diff < local_opt.max_gapo)
+        local_opt.max_gapo = local_opt.max_diff;
+    stack = gap_init_stack(local_opt.max_diff,
+                           local_opt.max_gapo,
+                           local_opt.max_gape,
+                           &local_opt);
+    seed_w = (bwt_width_t*)calloc(opt->seed_len+1, sizeof(bwt_width_t));
+    w = 0;
+    p->sa = 0; p->type = BWA_TYPE_NO_MATCH; p->c1 = p->c2 = 0; p->n_aln = 0; p->aln = 0;
+    if (max_l < p->len) {
+        max_l = p->len;
+        w = (bwt_width_t*)realloc(w, (max_l + 1) * sizeof(bwt_width_t));
+        memset(w, 0, (max_l + 1) * sizeof(bwt_width_t));
+    }
+    bwt_cal_width(bwt, p->len, p->seq, w);
+    if (opt->fnr > 0.0)
+        local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
+    local_opt.seed_len = opt->seed_len < p->len? opt->seed_len : 0x7fffffff;
+    if (p->len > opt->seed_len)
+        bwt_cal_width(bwt, opt->seed_len, p->seq + (p->len - opt->seed_len), seed_w);
+    // core function
+    for (j = 0; j < p->len; ++j) // we need to complement
+        p->seq[j] = p->seq[j] > 3? 4 : 3 - p->seq[j];
+    p->aln = bwt_match_gap(bwt,
+                           p->len,
+                           p->seq,
+                           w,
+                           p->len <= opt->seed_len? 0 : seed_w,
+                           &local_opt,
+                           &p->n_aln,
+                           stack);
+    // clean up the unused data in the record
+    free(p->name); free(p->seq); free(p->rseq); free(p->qual);
+    p->name = 0; p->seq = p->rseq = p->qual = 0;
+    free(seed_w); free(w);
+    gap_destroy_stack(stack);
+}
+
+typedef struct {
+    const gap_opt_t *opt;
+    int64_t     id;
+    bwt_t       *bwt;
+    bwa_seqio_t *ks;
+    uint64_t    tseq;
+} pipeline_t;
+
+typedef struct {
+    const pipeline_t *p;
+    bwa_seq_t *seqs;
+    uint64_t nseqs;
+} step_t;
+
+static void worker_for(void *data, long i, int tid)
+{
+    step_t *t = (step_t *)data;
+    bwa_cal_sa_reg_gap1(t->p->bwt, &t->seqs[i], t->p->opt);
+}
+
+static void *worker_pipeline(void *shared, int step, void *in)
+{
+    pipeline_t *p = (pipeline_t*)shared;
+    const gap_opt_t *opt = p->opt;
+    step_t *t = (step_t *)in;
+    //int32_t i;
+    if (0 == step) { //Load sequences
+        bwa_seq_t *seqs;
+        int nseqs;
+        bwa_seqio_t *ks = p->ks;
+        seqs = bwa_read_seq(ks, 0x200000, &nseqs, opt->mode, opt->trim_qual);
+        fprintf(stderr, "[%s] Loaded %d sequences\n", __func__, nseqs);
+        p->tseq += nseqs;
+        if ( 0 < nseqs) {
+            if (t) free(t);
+            t = calloc(1, sizeof(step_t));
+            t->p = p;
+            t->seqs = seqs;
+            t->nseqs = nseqs;
+            return t;
+        }
+    }
+    else if (1 == step) {
+        fprintf(stderr, "[%s] Calculating SA coordinates\n", __func__);
+        kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
+    }
+    else if (2 == step) {
+        
+    }
+    return 0;
+}
 
 static void bwa_alnse_core(const char *prefix,
                            const char *fn_fa,
@@ -21,58 +127,24 @@ static void bwa_alnse_core(const char *prefix,
                            const char *rg_line)
 {
     fprintf(stderr, "%s %d %s\n", __func__, n_occ, rg_line);
-    sleep(100);
-    int i, n_seqs;
-    long long tot_seqs = 0;
-    bwa_seq_t *seqs;
     bwa_seqio_t *ks;
     clock_t t;
     bwt_t *bwt;
+    // initialization
+    ks = bwa_open_reads(opt->mode, fn_fa);
+    { // load BWT
+        char *str = (char*)calloc(strlen(prefix) + 10, 1);
+        strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
+        free(str);
+    }
+    // Initiate piepeline object
+    pipeline_t p = {0};
+    p.opt = opt, p.id = 0, p.ks = ks, p.bwt = bwt;
+    t = clock();
+    kt_pipeline(2, worker_pipeline, &p, 3);
+    fprintf(stderr, "[%s] Processed %lu sequences in:\n\t", __func__, p.tseq);
+    fprintf(stderr, "%.3f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
     /*
-	// initialization
-	ks = bwa_open_reads(opt->mode, fn_fa);
-
-	{ // load BWT
-		char *str = (char*)calloc(strlen(prefix) + 10, 1);
-		strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
-		free(str);
-	}
-
-	// core loop
-	err_fwrite(SAI_MAGIC, 1, 4, stdout);
-	err_fwrite(opt, sizeof(gap_opt_t), 1, stdout);
-	while ((seqs = bwa_read_seq(ks, 0x40000, &n_seqs, opt->mode, opt->trim_qual)) != 0) {
-		tot_seqs += n_seqs;
-		t = clock();
-
-		fprintf(stderr, "[bwa_aln_core] calculate SA coordinate... ");
-
-#ifdef HAVE_PTHREAD
-		if (opt->n_threads <= 1) { // no multi-threading at all
-			bwa_cal_sa_reg_gap(0, bwt, n_seqs, seqs, opt);
-		} else {
-			pthread_t *tid;
-			pthread_attr_t attr;
-			thread_aux_t *data;
-			int j;
-			pthread_attr_init(&attr);
-			pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-			data = (thread_aux_t*)calloc(opt->n_threads, sizeof(thread_aux_t));
-			tid = (pthread_t*)calloc(opt->n_threads, sizeof(pthread_t));
-			for (j = 0; j < opt->n_threads; ++j) {
-				data[j].tid = j; data[j].bwt = bwt;
-				data[j].n_seqs = n_seqs; data[j].seqs = seqs; data[j].opt = opt;
-				pthread_create(&tid[j], &attr, worker, data + j);
-			}
-			for (j = 0; j < opt->n_threads; ++j) pthread_join(tid[j], 0);
-			free(data); free(tid);
-		}
-#else
-		bwa_cal_sa_reg_gap(0, bwt, n_seqs, seqs, opt);
-#endif
-
-		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
-
 		t = clock();
 		fprintf(stderr, "[bwa_aln_core] write to the disk... ");
 		for (i = 0; i < n_seqs; ++i) {
