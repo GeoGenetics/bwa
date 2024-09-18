@@ -18,10 +18,99 @@
 //From bwtaln.c
 bwa_seqio_t *bwa_open_reads(int mode, const char *fn_fa);
 int bwt_cal_width(const bwt_t *bwt, int len, const ubyte_t *str, bwt_width_t *width);
+//From bwase.c
+void bwase_initialize();
+void bwa_cal_pac_pos_core(const bntseq_t *bns,
+                          const bwt_t *bwt,
+                          bwa_seq_t *seq,
+                          const int max_mm,
+                          const float fnr);
+bwtint_t bwa_sa2pos(const bntseq_t *bns,
+                    const bwt_t *bwt,
+                    bwtint_t sapos,
+                    int ref_len,
+                    int *strand);
+
+void bwa_aln2seq_alnse(int n_aln,
+                       const bwt_aln1_t *aln,
+                       bwa_seq_t *s,
+                       int set_main,
+                       uint32_t n_multi)
+{
+    int i, cnt, best;
+    if (n_aln == 0) {
+        s->type = BWA_TYPE_NO_MATCH;
+        s->c1 = s->c2 = 0;
+        return;
+    }
+    if (set_main) {
+        best = aln[0].score;
+        for (i = cnt = 0; i < n_aln; ++i) {
+            const bwt_aln1_t *p = aln + i;
+            if (p->score > best) break;
+            if (drand48() * (p->l - p->k + 1 + cnt) > (double)cnt) {
+                s->n_mm = p->n_mm; s->n_gapo = p->n_gapo; s->n_gape = p->n_gape;
+                s->ref_shift = (int)p->n_del - (int)p->n_ins;
+                s->score = p->score;
+                s->sa = p->k + (bwtint_t)((p->l - p->k + 1) * drand48());
+            }
+            cnt += p->l - p->k + 1;
+        }
+        s->c1 = cnt;
+        for (; i < n_aln; ++i) cnt += aln[i].l - aln[i].k + 1;
+        s->c2 = cnt - s->c1;
+        s->type = s->c1 > 1? BWA_TYPE_REPEAT : BWA_TYPE_UNIQUE;
+    }
+    if (n_multi) {
+        int k, rest, n_occ, z = 0;
+        for (k = n_occ = 0; k < n_aln; ++k) {
+            const bwt_aln1_t *q = aln + k;
+            n_occ += q->l - q->k + 1;
+        }
+        if (s->multi) free(s->multi);
+        /* The following code is more flexible than what is required
+         * here. In principle, due to the requirement above, we can
+         * simply output all hits, but the following samples "rest"
+         * number of random hits. */
+        rest = n_occ > n_multi + 1? n_multi + 1 : n_occ; // find one additional for ->sa
+        s->multi = calloc(rest, sizeof(bwt_multi1_t));
+        for (k = 0; k < n_aln; ++k) {
+            const bwt_aln1_t *q = aln + k;
+            if (q->l - q->k + 1 <= rest) {
+                bwtint_t l;
+                for (l = q->k; l <= q->l; ++l) {
+                    s->multi[z].pos = l;
+                    s->multi[z].gap = q->n_gapo + q->n_gape;
+                    s->multi[z].ref_shift = (int)q->n_del - (int)q->n_ins;
+                    s->multi[z++].mm = q->n_mm;
+                }
+                rest -= q->l - q->k + 1;
+            }
+            else {
+                /*Random sampling (http://code.activestate.com/recipes/272884/).
+                  In fact, we never come here.
+                */
+                int j, i;
+                for (j = rest, i = q->l - q->k + 1; j > 0; --j) {
+                    double p = 1.0, x = drand48();
+                    while (x < p) p -= p * j / (i--);
+                    s->multi[z].pos = q->l - i;
+                    s->multi[z].gap = q->n_gapo + q->n_gape;
+                    s->multi[z].ref_shift = (int)q->n_del - (int)q->n_ins;
+                    s->multi[z++].mm = q->n_mm;
+                }
+                rest = 0;
+                break;
+            }
+        }
+        s->n_multi = z;
+    }
+}
 
 void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                          bwa_seq_t *p,
-                         const gap_opt_t *opt)
+                         const gap_opt_t *opt,
+                         uint32_t n_occ)
 {
     int j, max_l = 0, max_len = p->len;
     gap_stack_t *stack;
@@ -61,6 +150,7 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                            &local_opt,
                            &p->n_aln,
                            stack);
+    bwa_aln2seq_alnse(p->n_aln, p->aln, p, 1, n_occ);
     // clean up the unused data in the record
     free(p->name); free(p->seq); free(p->rseq); free(p->qual);
     p->name = 0; p->seq = p->rseq = p->qual = 0;
@@ -68,12 +158,32 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     gap_destroy_stack(stack);
 }
 
+void bwa_cal_pac_pos1(const bntseq_t *bns,
+                      bwt_t *const bwt,
+                      bwa_seq_t *p,
+                      int max_mm,
+                      float fnr)
+{
+    int j, strand, n_multi;
+    bwa_cal_pac_pos_core(bns, bwt, p, max_mm, fnr);
+    for (j = n_multi = 0; j < p->n_multi; ++j) {
+        bwt_multi1_t *q = p->multi + j;
+        q->pos = bwa_sa2pos(bns, bwt, q->pos, p->len + q->ref_shift, &strand);
+        q->strand = strand;
+        if (q->pos != p->pos && q->pos != (bwtint_t)-1)
+            p->multi[n_multi++] = *q;
+    }
+    p->n_multi = n_multi;
+}
+
 typedef struct {
     const gap_opt_t *opt;
     int64_t     id;
     bwt_t       *bwt;
+    bntseq_t    *bns;
     bwa_seqio_t *ks;
     uint64_t    tseq;
+    uint32_t    n_occ;
 } pipeline_t;
 
 typedef struct {
@@ -85,7 +195,12 @@ typedef struct {
 static void worker_for(void *data, long i, int tid)
 {
     step_t *t = (step_t *)data;
-    bwa_cal_sa_reg_gap1(t->p->bwt, &t->seqs[i], t->p->opt);
+    bwa_cal_sa_reg_gap1(t->p->bwt, &t->seqs[i], t->p->opt, t->p->n_occ);
+    bwa_cal_pac_pos1(t->p->bns,
+                     t->p->bwt,
+                     &t->seqs[i],
+                     t->p->opt->max_diff,
+                     t->p->opt->fnr);
 }
 
 static void *worker_pipeline(void *shared, int step, void *in)
@@ -111,11 +226,12 @@ static void *worker_pipeline(void *shared, int step, void *in)
         }
     }
     else if (1 == step) {
-        fprintf(stderr, "[%s] Calculating SA coordinates\n", __func__);
+        fprintf(stderr, "[%s] Computing alignments\n", __func__);
         kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
+        return t;
     }
     else if (2 == step) {
-        
+        bwa_free_read_seq(t->nseqs, t->seqs);
     }
     return 0;
 }
@@ -130,27 +246,28 @@ static void bwa_alnse_core(const char *prefix,
     bwa_seqio_t *ks;
     clock_t t;
     bwt_t *bwt;
+    bntseq_t *bns;
     // initialization
     ks = bwa_open_reads(opt->mode, fn_fa);
-    { // load BWT
+    { // load BWT and BNS
         char *str = (char*)calloc(strlen(prefix) + 10, 1);
         strcpy(str, prefix); strcat(str, ".bwt");  bwt = bwt_restore_bwt(str);
+        strcpy(str, prefix); strcat(str, ".sa"); bwt_restore_sa(str, bwt);
+        bns = bns_restore(prefix);
         free(str);
     }
+    bwase_initialize();
+
     // Initiate piepeline object
     pipeline_t p = {0};
-    p.opt = opt, p.id = 0, p.ks = ks, p.bwt = bwt;
+    p.opt = opt, p.id = 0, p.ks = ks, p.bwt = bwt, p.n_occ = n_occ, p.bns = bns;
     t = clock();
     kt_pipeline(2, worker_pipeline, &p, 3);
     fprintf(stderr, "[%s] Processed %lu sequences in:\n\t", __func__, p.tseq);
     fprintf(stderr, "%.3f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+    bwt_destroy(bwt);
+    bwa_seq_close(ks);
     /*
-		t = clock();
-		fprintf(stderr, "[bwa_aln_core] write to the disk... ");
-		for (i = 0; i < n_seqs; ++i) {
-			bwa_seq_t *p = seqs + i;
-			err_fwrite(&p->n_aln, 4, 1, stdout);
-			if (p->n_aln) err_fwrite(p->aln, sizeof(bwt_aln1_t), p->n_aln, stdout);
 		}
 		fprintf(stderr, "%.2f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
 
@@ -158,9 +275,6 @@ static void bwa_alnse_core(const char *prefix,
 		fprintf(stderr, "[bwa_aln_core] %lld sequences have been processed.\n", tot_seqs);
 	}
 
-	// destroy
-	bwt_destroy(bwt);
-	bwa_seq_close(ks);
     */
 }
 
