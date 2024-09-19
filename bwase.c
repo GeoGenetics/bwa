@@ -136,7 +136,7 @@ void bwa_cal_pac_pos_core(const bntseq_t *bns, const bwt_t *bwt, bwa_seq_t *seq,
 	seq->seQ = seq->mapQ = bwa_approx_mapQ(seq, max_diff);
 	//fprintf(stderr, "%d\n", seq->ref_shift);
 	seq->pos = bwa_sa2pos(bns, bwt, seq->sa, seq->len + seq->ref_shift, &strand);
-	seq->strand = strand;
+  seq->strand = strand;
 	seq->seQ = seq->mapQ = bwa_approx_mapQ(seq, max_diff);
 	if (seq->pos == (bwtint_t)-1) seq->type = BWA_TYPE_NO_MATCH;
 }
@@ -199,7 +199,7 @@ bwa_cigar_t *bwa_refine_gapped_core(bwtint_t l_pac, const ubyte_t *pacseq, int l
 }
 
 char *bwa_cal_md1(int n_cigar, bwa_cigar_t *cigar, int len, bwtint_t pos, ubyte_t *seq,
-				  bwtint_t l_pac, ubyte_t *pacseq, kstring_t *str, int *_nm)
+				  bwtint_t l_pac, const ubyte_t *pacseq, kstring_t *str, int *_nm)
 {
 	bwtint_t x, y;
 	int z, u, c, nm = 0;
