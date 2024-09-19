@@ -313,9 +313,7 @@ static void *worker_pipeline(void *shared, int step, void *in)
         int nseqs;
         bwa_seqio_t *ks = p->ks;
         seqs = bwa_read_seq(ks, 0x200000, &nseqs, opt->mode, opt->trim_qual);
-        p->tseq += nseqs;
         if ( 0 < nseqs) {
-            fprintf(stderr, "[bwa_alnse_core] Loaded %d sequences\n", nseqs);
             if (t) free(t);
             t = calloc(1, sizeof(step_t));
             t->p = p;
@@ -325,16 +323,17 @@ static void *worker_pipeline(void *shared, int step, void *in)
         }
     }
     else if (1 == step) { //Compute alignments
-        fprintf(stderr, "[bwa_alnse_core] Computing alignments\n");
         kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
         return t;
     }
     else if (2 == step) { //Write to output
+        p->tseq += t->nseqs;
+        fprintf(stderr, "[bwa_alnse_core] %ld sequences processed\n", p->tseq);
         int no_aln = p->no_aln;
         for (uint64_t i = 0; i < t->nseqs; ++i) {
             bwa_seq_t *seq = t->seqs + i;
             //Print only mapped sequences should be here
-            //if ( !no_aln && seq->type != BWA_TYPE_NO_MATCH)
+            if ( no_aln && seq->type == BWA_TYPE_NO_MATCH) continue;
             bwa_print_sam1(p->bns, seq, 0, opt->mode, opt->max_top2);
         }
         bwa_free_read_seq(t->nseqs, t->seqs);
@@ -489,6 +488,5 @@ int bwa_alnse(int argc, char *argv[])
     }
     bwa_alnse_core(prefix, argv[optind+1], opt, n_occ, rg_line, no_aln);
     free(opt); free(prefix);
-    fprintf(stderr, "%s\n", __func__);
     return 0;
 }
