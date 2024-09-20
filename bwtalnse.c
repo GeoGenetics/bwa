@@ -61,7 +61,6 @@ void bwa_aln2seq_alnse(int n_aln,
                        uint32_t n_multi)
 {
     int i, cnt, best;
-    //fprintf(stderr, "[%s] n_aln: %d\n", __func__, n_aln);
     if (n_aln == 0) {
         s->type = BWA_TYPE_NO_MATCH;
         s->c1 = s->c2 = 0;
@@ -77,7 +76,6 @@ void bwa_aln2seq_alnse(int n_aln,
                 s->ref_shift = (int)p->n_del - (int)p->n_ins;
                 s->score = p->score;
                 s->sa = p->k + (bwtint_t)((p->l - p->k + 1) * drand48());
-                //fprintf(stderr, "[%s] s->sa: %lu\n", __func__, s->sa);
             }
             cnt += p->l - p->k + 1;
         }
@@ -172,9 +170,9 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     //Do same as with w but just for the first seed len bases
     if (p->len > opt->seed_len)
         bwt_cal_width(bwt, opt->seed_len, p->seq + (p->len - opt->seed_len), seed_w);
-    // core function
     for (j = 0; j < p->len; ++j) // we need to complement
         p->seq[j] = p->seq[j] > 3? 4 : 3 - p->seq[j];
+    // core function
     p->aln = bwt_match_gap(bwt,
                            p->len,
                            p->seq,
@@ -184,9 +182,7 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                            &p->n_aln,
                            stack);
     //Set main hit and up to n_occ other hits
-    //fprintf(stderr, "[%s] p->pos: %lu\n", __func__, p->pos);
     bwa_aln2seq_alnse(p->n_aln, p->aln, p, 1, n_occ);
-    //fprintf(stderr, "[%s]\tp->pos: %lu\n", __func__, p->pos);
     free(seed_w); free(w);
     gap_destroy_stack(stack);
 }
@@ -202,6 +198,8 @@ void bwa_cal_pac_pos1(const bntseq_t *bns,
                       int max_mm,   //Max mismatch
                       float fnr)    //Max difference given prob and mm rate
 {
+    if (p->type == BWA_TYPE_NO_MATCH)
+        return;
     int j, strand, n_multi;
     bwa_cal_pac_pos_core(bns, bwt, p, max_mm, fnr);
     for (j = n_multi = 0; j < p->n_multi; ++j) {
@@ -212,7 +210,6 @@ void bwa_cal_pac_pos1(const bntseq_t *bns,
         /*q->pos should be different to the main alignment position
           and not -1 (duh!!)
         */
-        //fprintf(stderr, "qpos: %lu - ppos: %lu\n", q->pos, p->pos);
         if (q->pos != p->pos && q->pos != (bwtint_t)-1)
             p->multi[n_multi++] = *q;
     }
@@ -270,7 +267,6 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
     bwa_correct_trimmed(s);
 }
 
-
 typedef struct {
     const gap_opt_t *opt;
     int64_t     id;
@@ -281,6 +277,7 @@ typedef struct {
     uint64_t    tseq;
     uint32_t    n_occ;
     uint8_t     no_aln;
+    void        *forpool;
 } pipeline_t;
 
 typedef struct {
@@ -323,7 +320,8 @@ static void *worker_pipeline(void *shared, int step, void *in)
         }
     }
     else if (1 == step) { //Compute alignments
-        kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
+        //kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
+        kt_forpool(p->forpool, worker_for, in, t->nseqs);
         return t;
     }
     else if (2 == step) { //Write to output
@@ -354,6 +352,7 @@ static void bwa_alnse_core(const char *prefix,
     bwt_t *bwt;
     bntseq_t *bns;
     ubyte_t *pacseq;
+    void *forpool;
     // initialization
     ks = bwa_open_reads(opt->mode, fn_fa);
     { // load BWT and BNS
@@ -364,28 +363,32 @@ static void bwa_alnse_core(const char *prefix,
         srand48(bns->seed);
         free(str);
     }
+    { // Load packed sequence
+        pacseq = (ubyte_t*)calloc(bns->l_pac/4+1, 1);
+        err_rewind(bns->fp_pac);
+        err_fread_noeof(pacseq, 1, bns->l_pac/4+1, bns->fp_pac);
+    }
+    { // Create ktfor pool
+        forpool = kt_forpool_init(opt->n_threads);
+    }
     bwase_initialize();
-    bwa_print_sam_hdr(bns, rg_line);
     // Initiate piepeline object
     pipeline_t p = {0};
     p.opt = opt, p.id = 0, p.ks = ks, p.bwt = bwt;
     p.n_occ = n_occ, p.bns = bns, p.no_aln = no_aln;
-    // Get packed sequence
-    {
-        pacseq = (ubyte_t*)calloc(bns->l_pac/4+1, 1);
-        err_rewind(bns->fp_pac);
-        err_fread_noeof(pacseq, 1, bns->l_pac/4+1, bns->fp_pac);
-        p.pacseq = pacseq;
-    }
+    p.pacseq = pacseq, p.forpool = forpool;
 
     t = clock();
+    bwa_print_sam_hdr(bns, rg_line);
     kt_pipeline(3, worker_pipeline, &p, 3);
     fprintf(stderr, "[%s] Processed %lu sequences in:\n\t", __func__, p.tseq);
     fprintf(stderr, "%.3f sec\n", (float)(clock() - t) / CLOCKS_PER_SEC);
+
     bwt_destroy(bwt);
     bwa_seq_close(ks);
     bns_destroy(bns);
     free(pacseq);
+    kt_forpool_destroy(forpool);
 }
 
 #define OPTSTR "n:o:e:i:d:l:k:LR:m:t:NM:O:E:q:f:b012IYB:J:r:u"
