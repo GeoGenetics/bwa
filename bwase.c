@@ -458,7 +458,7 @@ void bwa_print_sam1(const bntseq_t *bns, bwa_seq_t *p, const bwa_seq_t *mate, in
 				if (p->c1 <= max_top2) err_printf("\tX1:i:%d", p->c2);
 			}
 			err_printf("\tXM:i:%d\tXO:i:%d\tXG:i:%d", p->n_mm, p->n_gapo, p->n_gapo+p->n_gape);
-			if (p->md) err_printf("\tMD:Z:%s", p->md);
+      if (p->md) err_printf("\tMD:Z:%s", p->md);
 			// print multiple hits
 			if (p->n_multi) {
 				err_printf("\tXA:Z:");

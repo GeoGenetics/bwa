@@ -90,7 +90,6 @@ void bwa_aln2seq_alnse(int n_aln,
             const bwt_aln1_t *q = aln + k;
             n_occ += q->l - q->k + 1;
         }
-        //fprintf(stderr, "[%s] n_occ: %d\n", __func__, n_occ);
         if (s->multi) free(s->multi);
         if (n_occ > n_multi + 1) { // if there are too many hits, generate none of them
             s->multi = 0; s->n_multi = 0;
@@ -138,39 +137,43 @@ void bwa_aln2seq_alnse(int n_aln,
 void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                          bwa_seq_t *p,
                          const gap_opt_t *opt,
-                         uint32_t n_occ)
+                         uint32_t n_occ,
+                         gap_stack_t *stack,
+                         bwt_width_t *seed_w,
+                         bwt_width_t *w,
+                         uint8_t max_l)
 {
-    int j, max_l = 0, max_len = p->len;
-    gap_stack_t *stack;
-    bwt_width_t *w, *seed_w;
+    int j;
+    //gap_stack_t *stack;
     gap_opt_t local_opt = *opt;
     if (opt->fnr > 0.0)
-        local_opt.max_diff = bwa_cal_maxdiff(max_len, BWA_AVG_ERR, opt->fnr);
+        local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
+    //maximum value of gap opens can not be greater that the maximum number of mismatches
     if (local_opt.max_diff < local_opt.max_gapo)
         local_opt.max_gapo = local_opt.max_diff;
-    // initiate priority stack
-    stack = gap_init_stack(local_opt.max_diff, // Max mismatch
-                           local_opt.max_gapo, // Gap open
-                           local_opt.max_gape, // Gap extension
-                           &local_opt);
-    seed_w = (bwt_width_t*)calloc(opt->seed_len+1, sizeof(bwt_width_t));
-    w = 0;
     p->sa = 0; p->type = BWA_TYPE_NO_MATCH; p->c1 = p->c2 = 0; p->n_aln = 0; p->aln = 0;
+    //This should NOT happen
     if (max_l < p->len) {
-        max_l = p->len;
-        w = (bwt_width_t*)realloc(w, (max_l + 1) * sizeof(bwt_width_t));
-        memset(w, 0, (max_l + 1) * sizeof(bwt_width_t));
+        fprintf(stderr, "HERE!!\n");
+        // * mem alloc
+        w = (bwt_width_t*)calloc(max_l + 1, sizeof(bwt_width_t));
     }
+    memset(w, 0, (max_l + 1) * sizeof(bwt_width_t));
     //Set w to something TODO underdtand
     bwt_cal_width(bwt, p->len, p->seq, w);
-    if (opt->fnr > 0.0)
-        local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
+    //if (opt->fnr > 0.0)
+    //    local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
     //Disable seeding if seed len > read len
     local_opt.seed_len = opt->seed_len < p->len? opt->seed_len : 0x7fffffff;
     //Do same as with w but just for the first seed len bases
-    if (p->len > opt->seed_len)
+    if (p->len > opt->seed_len) {
+        memset(seed_w, 0, (opt->seed_len + 1) * sizeof(bwt_width_t));
         bwt_cal_width(bwt, opt->seed_len, p->seq + (p->len - opt->seed_len), seed_w);
-    for (j = 0; j < p->len; ++j) // we need to complement
+    }
+    /*
+    *  we need to complement will be complemented back in bwa_refine_gapped1
+    */
+    for (j = 0; j < p->len; ++j) 
         p->seq[j] = p->seq[j] > 3? 4 : 3 - p->seq[j];
     // core function
     p->aln = bwt_match_gap(bwt,
@@ -183,8 +186,6 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                            stack);
     //Set main hit and up to n_occ other hits
     bwa_aln2seq_alnse(p->n_aln, p->aln, p, 1, n_occ);
-    free(seed_w); free(w);
-    gap_destroy_stack(stack);
 }
 
 /*
@@ -220,8 +221,11 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
 {
     int j, k, nm;
     kstring_t *str;
-    if (s->type == BWA_TYPE_NO_MATCH || s->type == BWA_TYPE_MATESW || s->n_gapo == 0)
+    if (s->type == BWA_TYPE_NO_MATCH || s->type == BWA_TYPE_MATESW )
         return;
+    //We need to complement
+    for (j = 0; j < s->len; ++j)
+        s->seq[j] = s->seq[j] > 3? 4 : 3 - s->seq[j];
     seq_reverse(s->len, s->seq, 0); // IMPORTANT: s->seq is reversed here!!!
     for (j = k = 0; j < s->n_multi; ++j) {
         bwt_multi1_t *q = s->multi + j;
@@ -242,14 +246,19 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
     }
     // this squeezes out gapped alignments which failed the CIGAR generation
     s->n_multi = k;
-    s->cigar = bwa_refine_gapped_core(bns->l_pac,
-                                      pacseq,
-                                      s->len,
-                                      s->strand? s->rseq : s->seq,
-                                      s->ref_shift,
-                                      &s->pos,
-                                      &s->n_cigar);
-    if (s->cigar == 0) s->type = BWA_TYPE_NO_MATCH;
+    if (s->n_gapo) {
+        s->cigar = bwa_refine_gapped_core(bns->l_pac,
+                                          pacseq,
+                                          s->len,
+                                          s->strand? s->rseq : s->seq,
+                                          s->ref_shift,
+                                          &s->pos,
+                                          &s->n_cigar);
+        if (s->cigar == 0) {
+            s->type = BWA_TYPE_NO_MATCH;
+            return;
+        }
+    }
     // generate MD tag
     str = (kstring_t*)calloc(1, sizeof(kstring_t));
     s->md = bwa_cal_md1(s->n_cigar,
@@ -268,6 +277,41 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
 }
 
 typedef struct {
+    uint8_t     max_l; //Max read length of 256
+    bwt_width_t *w;
+    bwt_width_t *seed_w;
+    gap_stack_t *stack;
+} fordata_t;
+
+#define MAX_READ_LEN 255U //For aDNA
+
+static fordata_t *fordata_init(const gap_opt_t *opt)
+{
+    fordata_t *fdata = calloc(opt->n_threads, sizeof(fordata_t));
+    for (uint32_t i = 0; i < opt->n_threads; i++) {
+        fordata_t *data = &fdata[i];
+        data->stack     = gap_init_stack(opt->max_diff,
+                                         opt->max_gapo,
+                                         opt->max_gape,
+                                         opt);
+        data->seed_w    = calloc(opt->seed_len+1, sizeof(bwt_width_t));
+        data->max_l     = MAX_READ_LEN;
+        data->w         = calloc(MAX_READ_LEN+1, sizeof(bwt_width_t));
+    }
+    return fdata;
+}
+
+static void fordata_destroy(fordata_t *fdata, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        fordata_t data = fdata[i];
+        free(data.seed_w); free(data.w);
+        gap_destroy_stack(data.stack);
+    }
+    free(fdata);
+}
+
+typedef struct {
     const gap_opt_t *opt;
     int64_t     id;
     bwt_t       *bwt;
@@ -278,6 +322,8 @@ typedef struct {
     uint32_t    n_occ;
     uint8_t     no_aln;
     void        *forpool;
+    //Per for thread data
+    fordata_t   *fdata;
 } pipeline_t;
 
 typedef struct {
@@ -289,8 +335,16 @@ typedef struct {
 static void worker_for(void *data, long i, int tid)
 {
     step_t *t = (step_t *)data;
+    fordata_t *fdata = (fordata_t *)t->p->fdata;
     //Compute SA coordinates //TODO Understand
-    bwa_cal_sa_reg_gap1(t->p->bwt, &t->seqs[i], t->p->opt, t->p->n_occ);
+    bwa_cal_sa_reg_gap1(t->p->bwt,
+                        &t->seqs[i],
+                        t->p->opt,
+                        t->p->n_occ,
+                        fdata[tid].stack,
+                        fdata[tid].seed_w,
+                        fdata[tid].w,
+                        fdata[tid].max_l);
     //Get alignment position and strand.
     bwa_cal_pac_pos1(t->p->bns,
                      t->p->bwt,
@@ -304,15 +358,13 @@ static void *worker_pipeline(void *shared, int step, void *in)
 {
     pipeline_t *p = (pipeline_t*)shared;
     const gap_opt_t *opt = p->opt;
-    step_t *t = (step_t *)in;
     if (0 == step) { //Load sequences
         bwa_seq_t *seqs;
         int nseqs;
         bwa_seqio_t *ks = p->ks;
         seqs = bwa_read_seq(ks, 0x200000, &nseqs, opt->mode, opt->trim_qual);
         if ( 0 < nseqs) {
-            if (t) free(t);
-            t = calloc(1, sizeof(step_t));
+            step_t *t = calloc(1, sizeof(step_t));
             t->p = p;
             t->seqs = seqs;
             t->nseqs = nseqs;
@@ -320,11 +372,12 @@ static void *worker_pipeline(void *shared, int step, void *in)
         }
     }
     else if (1 == step) { //Compute alignments
-        //kt_for(p->opt->n_threads, worker_for, in, t->nseqs);
+        step_t *t = (step_t *)in;
         kt_forpool(p->forpool, worker_for, in, t->nseqs);
         return t;
     }
     else if (2 == step) { //Write to output
+        step_t *t = (step_t *)in;
         p->tseq += t->nseqs;
         fprintf(stderr, "[bwa_alnse_core] %ld sequences processed\n", p->tseq);
         int no_aln = p->no_aln;
@@ -333,6 +386,7 @@ static void *worker_pipeline(void *shared, int step, void *in)
             //Print only mapped sequences should be here
             if ( no_aln && seq->type == BWA_TYPE_NO_MATCH) continue;
             bwa_print_sam1(p->bns, seq, 0, opt->mode, opt->max_top2);
+            fflush(stdout);
         }
         bwa_free_read_seq(t->nseqs, t->seqs);
         free(t);
@@ -349,10 +403,11 @@ static void bwa_alnse_core(const char *prefix,
 {
     bwa_seqio_t *ks;
     clock_t t;
-    bwt_t *bwt;
-    bntseq_t *bns;
-    ubyte_t *pacseq;
-    void *forpool;
+    bwt_t     *bwt;
+    bntseq_t  *bns;
+    ubyte_t   *pacseq;
+    void      *forpool;
+    fordata_t *fdata;
     // initialization
     ks = bwa_open_reads(opt->mode, fn_fa);
     { // load BWT and BNS
@@ -368,15 +423,17 @@ static void bwa_alnse_core(const char *prefix,
         err_rewind(bns->fp_pac);
         err_fread_noeof(pacseq, 1, bns->l_pac/4+1, bns->fp_pac);
     }
-    { // Create ktfor pool
+    { // Create ktfor pool and data
         forpool = kt_forpool_init(opt->n_threads);
+        //tdata = calloc(opt->n_threads, 4);
+        fdata   = fordata_init(opt);
     }
     bwase_initialize();
     // Initiate piepeline object
     pipeline_t p = {0};
     p.opt = opt, p.id = 0, p.ks = ks, p.bwt = bwt;
     p.n_occ = n_occ, p.bns = bns, p.no_aln = no_aln;
-    p.pacseq = pacseq, p.forpool = forpool;
+    p.pacseq = pacseq, p.forpool = forpool, p.fdata = fdata;
 
     t = clock();
     bwa_print_sam_hdr(bns, rg_line);
@@ -389,6 +446,7 @@ static void bwa_alnse_core(const char *prefix,
     bns_destroy(bns);
     free(pacseq);
     kt_forpool_destroy(forpool);
+    fordata_destroy(fdata, opt->n_threads);
 }
 
 #define OPTSTR "n:o:e:i:d:l:k:LR:m:t:NM:O:E:q:f:b012IYB:J:r:u"
