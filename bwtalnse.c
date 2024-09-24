@@ -60,23 +60,32 @@ void bwa_aln2seq_alnse(int n_aln,
                        int set_main,
                        uint32_t n_multi)
 {
-    int i, cnt, best;
+    int i, cnt;
     if (n_aln == 0) {
         s->type = BWA_TYPE_NO_MATCH;
         s->c1 = s->c2 = 0;
         return;
     }
+    /*
+     The first best scoring alignment will be reported as main alignment.
+     Rest n_multi of alignments will be reported in the XA tag.
+    */
     if (set_main) {
-        best = aln[0].score;
+        const bwt_aln1_t *maln = aln;
+        s->n_mm = maln->n_mm; s->n_gapo = maln->n_gapo; s->n_gape = maln->n_gape;
+        s->ref_shift = (int)maln->n_del - (int)maln->n_ins;
+        s->score = maln->score;
+        s->sa = maln->k + (bwtint_t)((maln->l - maln->k + 1) * drand48());
+
         for (i = cnt = 0; i < n_aln; ++i) {
             const bwt_aln1_t *p = aln + i;
-            if (p->score > best) break;
-            if (drand48() * (p->l - p->k + 1 + cnt) > (double)cnt) {
-                s->n_mm = p->n_mm; s->n_gapo = p->n_gapo; s->n_gape = p->n_gape;
-                s->ref_shift = (int)p->n_del - (int)p->n_ins;
-                s->score = p->score;
-                s->sa = p->k + (bwtint_t)((p->l - p->k + 1) * drand48());
-            }
+            if (p->score > maln->score) break;
+            //if (drand48() * (p->l - p->k + 1 + cnt) > (double)cnt) {
+            //    s->n_mm = p->n_mm; s->n_gapo = p->n_gapo; s->n_gape = p->n_gape;
+            //    s->ref_shift = (int)p->n_del - (int)p->n_ins;
+            //    s->score = p->score;
+            //    s->sa = p->k + (bwtint_t)((p->l - p->k + 1) * drand48());
+            //}
             cnt += p->l - p->k + 1;
         }
         s->c1 = cnt;
@@ -86,22 +95,19 @@ void bwa_aln2seq_alnse(int n_aln,
     }
     if (n_multi) {
         int k, rest, n_occ, z = 0;
-        for (k = n_occ = 0; k < n_aln; ++k) {
+        for (k = 1, n_occ = 0; k < n_aln; ++k) {
             const bwt_aln1_t *q = aln + k;
             n_occ += q->l - q->k + 1;
         }
         if (s->multi) free(s->multi);
-        if (n_occ > n_multi + 1) { // if there are too many hits, generate none of them
-            s->multi = 0; s->n_multi = 0;
-            return;
-        }
-        /* The following code is more flexible than what is required
-         * here. In principle, due to the requirement above, we can
-         * simply output all hits, but the following samples "rest"
-         * number of random hits. */
-        rest = n_occ > n_multi + 1? n_multi + 1 : n_occ; // find one additional for ->sa
+        /*
+          Take the next rest alignments and report them in the XA tag
+          TODO understand what bwt_aln1_t->l - bwt_aln1_t->k + 1 does
+        */
+        rest = n_occ > n_multi? n_multi : n_occ;
         s->multi = calloc(rest, sizeof(bwt_multi1_t));
-        for (k = 0; k < n_aln; ++k) {
+        //fprintf(stderr, "n_aln: %d r: %d\n", n_aln, rest);
+        for (k = 1; k < n_aln; ++k) {
             const bwt_aln1_t *q = aln + k;
             if (q->l - q->k + 1 <= rest) {
                 bwtint_t l;
@@ -113,23 +119,8 @@ void bwa_aln2seq_alnse(int n_aln,
                 }
                 rest -= q->l - q->k + 1;
             }
-            else {
-                /*Random sampling (http://code.activestate.com/recipes/272884/).
-                  In fact, we never come here.
-                */
-                int j, i;
-                for (j = rest, i = q->l - q->k + 1; j > 0; --j) {
-                    double p = 1.0, x = drand48();
-                    while (x < p) p -= p * j / (i--);
-                    s->multi[z].pos = q->l - i;
-                    s->multi[z].gap = q->n_gapo + q->n_gape;
-                    s->multi[z].ref_shift = (int)q->n_del - (int)q->n_ins;
-                    s->multi[z++].mm = q->n_mm;
-                }
-                rest = 0;
-                break;
-            }
         }
+        //fprintf(stderr, "\tr: %d z: %d\n", rest, z);
         s->n_multi = z;
     }
 }
@@ -144,7 +135,6 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                          uint8_t max_l)
 {
     int j;
-    //gap_stack_t *stack;
     gap_opt_t local_opt = *opt;
     if (opt->fnr > 0.0)
         local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
@@ -154,15 +144,12 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     p->sa = 0; p->type = BWA_TYPE_NO_MATCH; p->c1 = p->c2 = 0; p->n_aln = 0; p->aln = 0;
     //This should NOT happen
     if (max_l < p->len) {
-        fprintf(stderr, "HERE!!\n");
-        // * mem alloc
+        abort();
         w = (bwt_width_t*)calloc(max_l + 1, sizeof(bwt_width_t));
     }
     memset(w, 0, (max_l + 1) * sizeof(bwt_width_t));
     //Set w to something TODO underdtand
     bwt_cal_width(bwt, p->len, p->seq, w);
-    //if (opt->fnr > 0.0)
-    //    local_opt.max_diff = bwa_cal_maxdiff(p->len, BWA_AVG_ERR, opt->fnr);
     //Disable seeding if seed len > read len
     local_opt.seed_len = opt->seed_len < p->len? opt->seed_len : 0x7fffffff;
     //Do same as with w but just for the first seed len bases
@@ -173,7 +160,7 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     /*
     *  we need to complement will be complemented back in bwa_refine_gapped1
     */
-    for (j = 0; j < p->len; ++j) 
+    for (j = 0; j < p->len; ++j)
         p->seq[j] = p->seq[j] > 3? 4 : 3 - p->seq[j];
     // core function
     p->aln = bwt_match_gap(bwt,
@@ -220,9 +207,9 @@ void bwa_cal_pac_pos1(const bntseq_t *bns,
 void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq)
 {
     int j, k, nm;
-    kstring_t *str;
     if (s->type == BWA_TYPE_NO_MATCH || s->type == BWA_TYPE_MATESW )
         return;
+    kstring_t *str = calloc(1, sizeof(kstring_t));
     //We need to complement
     for (j = 0; j < s->len; ++j)
         s->seq[j] = s->seq[j] > 3? 4 : 3 - s->seq[j];
@@ -239,8 +226,18 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
                                               &q->pos,
                                               &n_cigar);
             q->n_cigar = n_cigar;
-            if (q->cigar)
+            if (q->cigar) {
+                q->md = bwa_cal_md1(q->n_cigar,
+                                    q->cigar,
+                                    s->len,
+                                    q->pos,
+                                    q->strand ? s->rseq : s->seq,
+                                    bns->l_pac,
+                                    pacseq,
+                                    str,
+                                    &nm);
                 s->multi[k++] = *q;
+            }
         }
         else s->multi[k++] = *q;
     }
@@ -260,7 +257,6 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
         }
     }
     // generate MD tag
-    str = (kstring_t*)calloc(1, sizeof(kstring_t));
     s->md = bwa_cal_md1(s->n_cigar,
                         s->cigar,
                         s->len,

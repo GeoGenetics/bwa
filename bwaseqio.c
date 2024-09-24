@@ -225,8 +225,10 @@ void bwa_free_read_seq(int n_seqs, bwa_seq_t *seqs)
 	int i, j;
 	for (i = 0; i != n_seqs; ++i) {
 		bwa_seq_t *p = seqs + i;
-		for (j = 0; j < p->n_multi; ++j)
+		for (j = 0; j < p->n_multi; ++j) {
 			if (p->multi[j].cigar) free(p->multi[j].cigar);
+      if (p->multi[j].md) free(p->multi[j].md);
+    }
 		free(p->name);
 		free(p->seq); free(p->rseq); free(p->qual); free(p->aln); free(p->md); free(p->multi);
 		free(p->cigar);

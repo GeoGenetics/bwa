@@ -467,13 +467,18 @@ void bwa_print_sam1(const bntseq_t *bns, bwa_seq_t *p, const bwa_seq_t *mate, in
 					int k;
 					j = pos_end_multi(q, p->len) - q->pos;
 					nn = bns_cnt_ambi(bns, q->pos, j, &seqid);
-					err_printf("%s,%c%d,", bns->anns[seqid].name, q->strand? '-' : '+',
+          //Target name and position
+          err_printf("%s,%c%d,", bns->anns[seqid].name, q->strand? '-' : '+',
 						   (int)(q->pos - bns->anns[seqid].offset + 1));
-					if (q->cigar) {
+          //cigar
+          if (q->cigar) {
 						for (k = 0; k < q->n_cigar; ++k)
 							err_printf("%d%c", __cigar_len(q->cigar[k]), "MIDS"[__cigar_op(q->cigar[k])]);
 					} else err_printf("%dM", p->len);
-					err_printf(",%d;", q->gap + q->mm);
+          //Edit distnce
+          if (q->md) err_printf(",%s", q->md);
+          else err_printf(",%d", p->len);
+          err_printf(",%d;", q->gap + q->mm);
 				}
 			}
 		}

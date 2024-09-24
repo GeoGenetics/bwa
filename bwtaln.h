@@ -61,6 +61,8 @@ typedef struct {
 	int ref_shift;
 	bwtint_t pos;
 	bwa_cigar_t *cigar;
+  //Adding MD field to XA tag TODO Change to CS tag https://github.com/lh3/minimap2#cs
+  char *md;
 } bwt_multi1_t;
 
 typedef struct {
