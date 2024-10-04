@@ -75,17 +75,12 @@ void bwa_aln2seq_alnse(int n_aln,
         s->n_mm = maln->n_mm; s->n_gapo = maln->n_gapo; s->n_gape = maln->n_gape;
         s->ref_shift = (int)maln->n_del - (int)maln->n_ins;
         s->score = maln->score;
+        //Choose a random occurrence
         s->sa = maln->k + (bwtint_t)((maln->l - maln->k + 1) * drand48());
-
+        //Count number of occurrences of all equally best scoring alignments
         for (i = cnt = 0; i < n_aln; ++i) {
             const bwt_aln1_t *p = aln + i;
             if (p->score > maln->score) break;
-            //if (drand48() * (p->l - p->k + 1 + cnt) > (double)cnt) {
-            //    s->n_mm = p->n_mm; s->n_gapo = p->n_gapo; s->n_gape = p->n_gape;
-            //    s->ref_shift = (int)p->n_del - (int)p->n_ins;
-            //    s->score = p->score;
-            //    s->sa = p->k + (bwtint_t)((p->l - p->k + 1) * drand48());
-            //}
             cnt += p->l - p->k + 1;
         }
         s->c1 = cnt;
@@ -102,11 +97,11 @@ void bwa_aln2seq_alnse(int n_aln,
         if (s->multi) free(s->multi);
         /*
           Take the next rest alignments and report them in the XA tag
-          TODO understand what bwt_aln1_t->l - bwt_aln1_t->k + 1 does
+          TODO understand why bwt_aln1_t->l - bwt_aln1_t->k + 1 computes
+               the number of occurrences of an alignment
         */
         rest = n_occ > n_multi? n_multi : n_occ;
         s->multi = calloc(rest, sizeof(bwt_multi1_t));
-        //fprintf(stderr, "n_aln: %d r: %d\n", n_aln, rest);
         for (k = 1; k < n_aln; ++k) {
             const bwt_aln1_t *q = aln + k;
             if (q->l - q->k + 1 <= rest) {
@@ -120,7 +115,6 @@ void bwa_aln2seq_alnse(int n_aln,
                 rest -= q->l - q->k + 1;
             }
         }
-        //fprintf(stderr, "\tr: %d z: %d\n", rest, z);
         s->n_multi = z;
     }
 }
@@ -214,35 +208,7 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
     for (j = 0; j < s->len; ++j)
         s->seq[j] = s->seq[j] > 3? 4 : 3 - s->seq[j];
     seq_reverse(s->len, s->seq, 0); // IMPORTANT: s->seq is reversed here!!!
-    for (j = k = 0; j < s->n_multi; ++j) {
-        bwt_multi1_t *q = s->multi + j;
-        int n_cigar;
-        if (q->gap) { // gapped alignment
-            q->cigar = bwa_refine_gapped_core(bns->l_pac,
-                                              pacseq,
-                                              s->len,
-                                              q->strand? s->rseq : s->seq,
-                                              q->ref_shift,
-                                              &q->pos,
-                                              &n_cigar);
-            q->n_cigar = n_cigar;
-            if (q->cigar) {
-                q->md = bwa_cal_md1(q->n_cigar,
-                                    q->cigar,
-                                    s->len,
-                                    q->pos,
-                                    q->strand ? s->rseq : s->seq,
-                                    bns->l_pac,
-                                    pacseq,
-                                    str,
-                                    &nm);
-                s->multi[k++] = *q;
-            }
-        }
-        else s->multi[k++] = *q;
-    }
-    // this squeezes out gapped alignments which failed the CIGAR generation
-    s->n_multi = k;
+    //Main hit
     if (s->n_gapo) {
         s->cigar = bwa_refine_gapped_core(bns->l_pac,
                                           pacseq,
@@ -251,6 +217,7 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
                                           s->ref_shift,
                                           &s->pos,
                                           &s->n_cigar);
+        // this squeezes out gapped alignments which failed the CIGAR generation
         if (s->cigar == 0) {
             s->type = BWA_TYPE_NO_MATCH;
             return;
@@ -267,6 +234,34 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
                         str,
                         &nm);
     s->nm = nm;
+    //Other hits
+    for (j = k = 0; j < s->n_multi; ++j) {
+        bwt_multi1_t *q = s->multi + j;
+        int n_cigar;
+        nm = 0;
+        if (q->gap) { //q->gap == bwt_aln1_t->n_gapo + bwt_aln1_t->n_gape
+            q->cigar = bwa_refine_gapped_core(bns->l_pac,
+                                              pacseq,
+                                              s->len,
+                                              q->strand? s->rseq : s->seq,
+                                              q->ref_shift,
+                                              &q->pos,
+                                              &n_cigar);
+            if (!q->cigar) continue;
+        }
+        q->n_cigar = n_cigar;
+        q->md = bwa_cal_md1(q->n_cigar,
+                            q->cigar,
+                            s->len,
+                            q->pos,
+                            q->strand ? s->rseq : s->seq,
+                            bns->l_pac,
+                            pacseq,
+                            str,
+                            &nm);
+        s->multi[k++] = *q;
+    }
+    s->n_multi = k;
     free(str->s); free(str);
     // correct for trimmed reads
     bwa_correct_trimmed(s);
