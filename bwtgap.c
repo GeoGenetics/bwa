@@ -106,7 +106,7 @@ static inline int int_log2(uint32_t v)
 	return c;
 }
 
-bwt_aln1_t *bwt_match_gap(bwt_t *const bwt,
+bwt_aln1_t *bwt_match_gap(const bwt_t *bwt,
                           int len,
                           const ubyte_t *seq,
                           bwt_width_t *width,

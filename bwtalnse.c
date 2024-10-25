@@ -125,8 +125,7 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
                          uint32_t n_occ,
                          gap_stack_t *stack,
                          bwt_width_t *seed_w,
-                         bwt_width_t *w,
-                         uint8_t max_l)
+                         bwt_width_t *w)
 {
     int j;
     gap_opt_t local_opt = *opt;
@@ -136,12 +135,8 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     if (local_opt.max_diff < local_opt.max_gapo)
         local_opt.max_gapo = local_opt.max_diff;
     p->sa = 0; p->type = BWA_TYPE_NO_MATCH; p->c1 = p->c2 = 0; p->n_aln = 0; p->aln = 0;
-    //This should NOT happen
-    if (max_l < p->len) {
-        abort();
-        w = (bwt_width_t*)calloc(max_l + 1, sizeof(bwt_width_t));
-    }
-    memset(w, 0, (max_l + 1) * sizeof(bwt_width_t));
+
+    memset(w, 0, (local_opt.max_len + 1) * sizeof(bwt_width_t));
     //Set w to something TODO underdtand
     bwt_cal_width(bwt, p->len, p->seq, w);
     //Disable seeding if seed len > read len
@@ -268,13 +263,10 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
 }
 
 typedef struct {
-    uint8_t     max_l; //Max read length of 256
     bwt_width_t *w;
     bwt_width_t *seed_w;
     gap_stack_t *stack;
 } fordata_t;
-
-#define MAX_READ_LEN 255U //For aDNA
 
 static fordata_t *fordata_init(const gap_opt_t *opt)
 {
@@ -286,8 +278,7 @@ static fordata_t *fordata_init(const gap_opt_t *opt)
                                          opt->max_gape,
                                          opt);
         data->seed_w    = calloc(opt->seed_len+1, sizeof(bwt_width_t));
-        data->max_l     = MAX_READ_LEN;
-        data->w         = calloc(MAX_READ_LEN+1, sizeof(bwt_width_t));
+        data->w         = calloc(opt->max_len+1, sizeof(bwt_width_t));
     }
     return fdata;
 }
@@ -310,7 +301,7 @@ typedef struct {
     bwa_seqio_t *ks;
     ubyte_t     *pacseq;
     uint64_t    tseq;
-    uint32_t    n_occ;
+    uint32_t    n_occ; //Report up to n_occ hist
     uint8_t     no_aln;
     void        *forpool;
     //Per for thread data
@@ -334,8 +325,7 @@ static void worker_for(void *data, long i, int tid)
                         t->p->n_occ,
                         fdata[tid].stack,
                         fdata[tid].seed_w,
-                        fdata[tid].w,
-                        fdata[tid].max_l);
+                        fdata[tid].w);
     //Get alignment position and strand.
     bwa_cal_pac_pos1(t->p->bns,
                      t->p->bwt,
@@ -349,7 +339,7 @@ static void *worker_pipeline(void *shared, int step, void *in)
 {
     pipeline_t *p = (pipeline_t*)shared;
     const gap_opt_t *opt = p->opt;
-    if (0 == step) { //Load sequences
+    if (0 == step) {      //Load sequences
         bwa_seq_t *seqs;
         int nseqs;
         bwa_seqio_t *ks = p->ks;
@@ -480,6 +470,7 @@ int bwa_alnse(int argc, char *argv[])
         case 'Y': opt->mode |= BWA_MODE_CFY;          break;
         case 'B': opt->mode |= atoi(optarg) << 24;    break;
         case 'J': n_occ = atoi(optarg);               break;
+        case 'a': opt->max_len = atoi(optarg)         break;
         case 'r':
             if ((rg_line = bwa_set_rg(optarg)) == 0) return 1;
             break;
@@ -487,6 +478,7 @@ int bwa_alnse(int argc, char *argv[])
         default: return 1;
         }
     }
+    //TODO check for correct value of opt->max_len
     if (opte > 0) {
         opt->max_gape = opte;
         opt->mode &= ~BWA_MODE_GAPE;
@@ -520,6 +512,7 @@ int bwa_alnse(int argc, char *argv[])
         fprintf(stderr, "         -2        use the 2nd read in a pair (effective with -b)\n");
         fprintf(stderr, "         -Y        filter Casava-filtered sequences\n");
         fprintf(stderr, "         -J INT    Report up to INT additional hits in XA tag [5]\n");
+        fprintf(stderr, "         -a INT    Maximum read length [255]\n");
         fprintf(stderr, "         -r STR    RG_line\n");
         fprintf(stderr, "         -u        Do not output unmapped reads\n");
         fprintf(stderr, "\n");

@@ -111,7 +111,8 @@ typedef struct {
 	float fnr;
 	int max_diff, max_gapo, max_gape;
 	int max_seed_diff, seed_len;
-	int n_threads;
+  int max_len;
+  int n_threads;
 	int max_top2;
 	int trim_qual;
 } gap_opt_t;
