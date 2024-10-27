@@ -198,7 +198,7 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
     int j, k, nm;
     if (s->type == BWA_TYPE_NO_MATCH || s->type == BWA_TYPE_MATESW )
         return;
-    kstring_t *str = calloc(1, sizeof(kstring_t));
+    kstring_t str = {0};
     //We need to complement
     for (j = 0; j < s->len; ++j)
         s->seq[j] = s->seq[j] > 3? 4 : 3 - s->seq[j];
@@ -226,13 +226,13 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
                         s->strand? s->rseq : s->seq,
                         bns->l_pac,
                         pacseq,
-                        str,
+                        &str,
                         &nm);
     s->nm = nm;
     //Other hits
     for (j = k = 0; j < s->n_multi; ++j) {
         bwt_multi1_t *q = s->multi + j;
-        int n_cigar;
+        int n_cigar = 0;
         nm = 0;
         if (q->gap) { //q->gap == bwt_aln1_t->n_gapo + bwt_aln1_t->n_gape
             q->cigar = bwa_refine_gapped_core(bns->l_pac,
@@ -252,12 +252,12 @@ void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq
                             q->strand ? s->rseq : s->seq,
                             bns->l_pac,
                             pacseq,
-                            str,
+                            &str,
                             &nm);
         s->multi[k++] = *q;
     }
     s->n_multi = k;
-    free(str->s); free(str);
+    free(str.s);
     // correct for trimmed reads
     bwa_correct_trimmed(s);
 }
@@ -470,7 +470,7 @@ int bwa_alnse(int argc, char *argv[])
         case 'Y': opt->mode |= BWA_MODE_CFY;          break;
         case 'B': opt->mode |= atoi(optarg) << 24;    break;
         case 'J': n_occ = atoi(optarg);               break;
-        case 'a': opt->max_len = atoi(optarg)         break;
+        case 'a': opt->max_len = atoi(optarg);        break;
         case 'r':
             if ((rg_line = bwa_set_rg(optarg)) == 0) return 1;
             break;
