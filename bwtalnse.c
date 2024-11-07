@@ -75,8 +75,9 @@ void bwa_aln2seq_alnse(int n_aln,
         s->n_mm = maln->n_mm; s->n_gapo = maln->n_gapo; s->n_gape = maln->n_gape;
         s->ref_shift = (int)maln->n_del - (int)maln->n_ins;
         s->score = maln->score;
-        //Choose a random occurrence
-        s->sa = maln->k + (bwtint_t)((maln->l - maln->k + 1) * drand48());
+        //s->sa = maln->k + (bwtint_t)((maln->l - maln->k + 1) * drand48());
+        //First occurrence is main alignment
+        s->sa = maln->k;
         //Count number of occurrences of all equally best scoring alignments
         for (i = cnt = 0; i < n_aln; ++i) {
             const bwt_aln1_t *p = aln + i;
@@ -90,32 +91,38 @@ void bwa_aln2seq_alnse(int n_aln,
     }
     if (n_multi) {
         int k, rest, n_occ, z = 0;
-        for (k = 1, n_occ = 0; k < n_aln; ++k) {
+        for (k = 0, n_occ = 0; k < n_aln; ++k) {
             const bwt_aln1_t *q = aln + k;
             n_occ += q->l - q->k + 1;
         }
+        n_occ--; //Subtract main alignment occurrence
         if (s->multi) free(s->multi);
         /*
           Take the next rest alignments and report them in the XA tag
           TODO understand why bwt_aln1_t->l - bwt_aln1_t->k + 1 computes
                the number of occurrences of an alignment
+               I think it's the SA interval
         */
         rest = n_occ > n_multi? n_multi : n_occ;
         s->multi = calloc(rest, sizeof(bwt_multi1_t));
-        for (k = 1; k < n_aln; ++k) {
+        s->n_multi = rest;
+        for (k = 0; k < n_aln; ++k) {
             const bwt_aln1_t *q = aln + k;
-            if (q->l - q->k + 1 <= rest) {
-                bwtint_t l;
-                for (l = q->k; l <= q->l; ++l) {
-                    s->multi[z].pos = l;
-                    s->multi[z].gap = q->n_gapo + q->n_gape;
-                    s->multi[z].ref_shift = (int)q->n_del - (int)q->n_ins;
-                    s->multi[z++].mm = q->n_mm;
-                }
-                rest -= q->l - q->k + 1;
+            bwtint_t l;
+            /*
+             Report alignments starting from the second occurrence of the
+             first alignment.
+            */
+            for (l = k?q->k:q->k+1; l <= q->l; ++l) {
+                s->multi[z].pos = l;
+                s->multi[z].gap = q->n_gapo + q->n_gape;
+                s->multi[z].ref_shift = (int)q->n_del - (int)q->n_ins;
+                s->multi[z++].mm = q->n_mm;
+                if (rest == z) goto velociraptor;
             }
         }
-        s->n_multi = z;
+        //https://xkcd.com/292/
+        velociraptor:
     }
 }
 
