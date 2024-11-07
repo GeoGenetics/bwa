@@ -34,9 +34,10 @@ gap_opt_t *gap_init_opt()
 	o->seed_len = 32; o->max_seed_diff = 2;
 	o->fnr = 0.04;
 	o->n_threads = 1;
-	o->max_top2 = 30;
+	o->max_top2  = 30;
 	o->trim_qual = 0;
-	return o;
+  o->max_len   = 255;
+  return o;
 }
 
 int bwa_cal_maxdiff(int l, double err, double thres)

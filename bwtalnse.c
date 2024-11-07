@@ -53,12 +53,121 @@ void bwa_print_sam1(const bntseq_t *bns,
                     const bwa_seq_t *mate,
                     int mode,
                     int max_top2);
+int64_t pos_end(const bwa_seq_t *p);
+int64_t pos_end_multi(const bwt_multi1_t *p, int len);
+void bwa_print_seq(FILE *stream, bwa_seq_t *seq);
 
-void bwa_aln2seq_alnse(int n_aln,
-                       const bwt_aln1_t *aln,
-                       bwa_seq_t *s,
-                       int set_main,
-                       uint32_t n_multi)
+void bwa_print_sesam1(const bntseq_t *bns,
+                      bwa_seq_t *p,
+                      int mode)
+{
+    int j;
+    if ( p->type != BWA_TYPE_NO_MATCH ) {
+        int seqid, nn, flag = p->extra_flag;
+        char XT;
+        j = pos_end(p) - p->pos; // j is the length of the reference in the alignment
+
+        // get seqid
+        nn = bns_cnt_ambi(bns, p->pos, j, &seqid);
+        if ( p->pos + j - bns->anns[seqid].offset > bns->anns[seqid].len )
+            // flag UNMAP as this alignment bridges two adjacent reference sequences
+            flag |= SAM_FSU;
+
+        // update flag and print it
+        if (p->strand) flag |= SAM_FSR;
+        err_printf("%s\t%d\t%s\t", p->name, flag, bns->anns[seqid].name);
+        err_printf("%d\t%d\t", (int)(p->pos - bns->anns[seqid].offset + 1), p->mapQ);
+
+        // print CIGAR
+        if (p->cigar) {
+            for (j = 0; j != p->n_cigar; ++j)
+                err_printf("%d%c", __cigar_len(p->cigar[j]),
+                                   "MIDS"[__cigar_op(p->cigar[j])]);
+        }
+        else err_printf("%dM", p->len);
+
+        // print mate coordinate
+        err_printf("\t*\t0\t0\t");
+
+        // print sequence and quality
+        bwa_print_seq(stdout, p);
+        err_putchar('\t');
+        if (p->qual) {
+            if (p->strand) seq_reverse(p->len, p->qual, 0); // reverse quality
+            err_printf("%s", p->qual);
+        } else err_printf("*");
+
+        if (bwa_rg_id[0]) err_printf("\tRG:Z:%s", bwa_rg_id);
+        if (p->bc[0]) err_printf("\tBC:Z:%s", p->bc);
+        if (p->clip_len < p->full_len) err_printf("\tXC:i:%d", p->clip_len);
+        if (p->type != BWA_TYPE_NO_MATCH) {
+            int i;
+            // calculate XT tag
+            XT = "NURM"[p->type];
+            if (nn > 10) XT = 'N';
+            // print tags
+            err_printf("\tXT:A:%c\t%s:i:%d", XT,
+                                             (mode & BWA_MODE_COMPREAD)? "NM" : "CM",
+                                             p->nm);
+            if (nn) err_printf("\tXN:i:%d", nn);
+            // X0 and X1 are not available for this type of alignment
+            if (p->type != BWA_TYPE_MATESW) {
+                err_printf("\tX0:i:%d", p->c1);
+                err_printf("\tX1:i:%d", p->c2);
+            }
+            err_printf("\tXM:i:%d\tXO:i:%d\tXG:i:%d", p->n_mm,
+                                                      p->n_gapo,
+                                                      p->n_gapo+p->n_gape);
+            if (p->md) err_printf("\tMD:Z:%s", p->md);
+            // print multiple hits
+            if (p->n_multi) {
+                err_printf("\tXA:Z:");
+                for (i = 0; i < p->n_multi; ++i) {
+                    bwt_multi1_t *q = p->multi + i;
+                    int k;
+                    j = pos_end_multi(q, p->len) - q->pos;
+                    nn = bns_cnt_ambi(bns, q->pos, j, &seqid);
+                    //Target name and position
+                    err_printf("%s,%c%d,", bns->anns[seqid].name, q->strand? '-' : '+',
+                                           (int)(q->pos - bns->anns[seqid].offset + 1));
+                    //cigar
+                    if (q->cigar) {
+                        for (k = 0; k < q->n_cigar; ++k)
+                            err_printf("%d%c", __cigar_len(q->cigar[k]),
+                                       "MIDS"[__cigar_op(q->cigar[k])]);
+                    }
+                    else err_printf("%dM", p->len);
+                    //Edit distnce
+                    if (q->md) err_printf(",%s", q->md);
+                    else err_printf(",%d", p->len);
+                    err_printf(",%d;", q->gap + q->mm);
+                }
+            }
+        }
+        err_putchar('\n');
+    } else { // this read has no match
+        int flag = p->extra_flag | SAM_FSU;
+        err_printf("%s\t%d\t*\t0\t0\t*\t*\t0\t0\t", p->name, flag);
+        //Why did this work differently to the version above??
+        //for (j = 0; j != p->len; ++j) putchar("ACGTN"[(int)s[j]]);
+        bwa_print_seq(stdout, p);
+        err_putchar('\t');
+        if (p->qual) {
+            if (p->strand) seq_reverse(p->len, p->qual, 0); // reverse quality
+            err_printf("%s", p->qual);
+        } else err_printf("*");
+        if (bwa_rg_id[0]) err_printf("\tRG:Z:%s", bwa_rg_id);
+        if (p->bc[0]) err_printf("\tBC:Z:%s", p->bc);
+        if (p->clip_len < p->full_len) err_printf("\tXC:i:%d", p->clip_len);
+        err_putchar('\n');
+    }
+}
+
+static void bwa_aln2seq_alnse(int n_aln,
+                              const bwt_aln1_t *aln,
+                              bwa_seq_t *s,
+                              int set_main,
+                              uint32_t n_multi)
 {
     int i, cnt;
     if (n_aln == 0) {
@@ -75,7 +184,6 @@ void bwa_aln2seq_alnse(int n_aln,
         s->n_mm = maln->n_mm; s->n_gapo = maln->n_gapo; s->n_gape = maln->n_gape;
         s->ref_shift = (int)maln->n_del - (int)maln->n_ins;
         s->score = maln->score;
-        //s->sa = maln->k + (bwtint_t)((maln->l - maln->k + 1) * drand48());
         //First occurrence is main alignment
         s->sa = maln->k;
         //Count number of occurrences of all equally best scoring alignments
@@ -126,13 +234,13 @@ void bwa_aln2seq_alnse(int n_aln,
     }
 }
 
-void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
-                         bwa_seq_t *p,
-                         const gap_opt_t *opt,
-                         uint32_t n_occ,
-                         gap_stack_t *stack,
-                         bwt_width_t *seed_w,
-                         bwt_width_t *w)
+static void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
+                                bwa_seq_t *p,
+                                const gap_opt_t *opt,
+                                uint32_t n_occ,
+                                gap_stack_t *stack,
+                                bwt_width_t *seed_w,
+                                bwt_width_t *w)
 {
     int j;
     gap_opt_t local_opt = *opt;
@@ -144,7 +252,7 @@ void bwa_cal_sa_reg_gap1(bwt_t *const bwt,
     p->sa = 0; p->type = BWA_TYPE_NO_MATCH; p->c1 = p->c2 = 0; p->n_aln = 0; p->aln = 0;
 
     memset(w, 0, (local_opt.max_len + 1) * sizeof(bwt_width_t));
-    //Set w to something TODO underdtand
+    //Set w to something TODO understand
     bwt_cal_width(bwt, p->len, p->seq, w);
     //Disable seeding if seed len > read len
     local_opt.seed_len = opt->seed_len < p->len? opt->seed_len : 0x7fffffff;
@@ -176,11 +284,11 @@ Get main hit position, strand, and mapping quality.
 Position and strand are also computed for other hits.
 Here is where bwa_seq_t->type = BWA_TYPE_NO_MATCH if read unmapped.
 */
-void bwa_cal_pac_pos1(const bntseq_t *bns,
-                      bwt_t *const bwt,
-                      bwa_seq_t *p, //Main hit
-                      int max_mm,   //Max mismatch
-                      float fnr)    //Max difference given prob and mm rate
+static void bwa_cal_pac_pos1(const bntseq_t *bns,
+                             bwt_t *const bwt,
+                             bwa_seq_t *p, //Main hit
+                             int max_mm,   //Max mismatch
+                             float fnr)    //Max difference given prob and mm rate
 {
     if (p->type == BWA_TYPE_NO_MATCH)
         return;
@@ -200,7 +308,7 @@ void bwa_cal_pac_pos1(const bntseq_t *bns,
     p->n_multi = n_multi;
 }
 
-void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq)
+static void bwa_refine_gapped1(const bntseq_t *bns, bwa_seq_t *s, const ubyte_t *pacseq)
 {
     int j, k, nm;
     if (s->type == BWA_TYPE_NO_MATCH || s->type == BWA_TYPE_MATESW )
@@ -373,7 +481,7 @@ static void *worker_pipeline(void *shared, int step, void *in)
             bwa_seq_t *seq = t->seqs + i;
             //Print only mapped sequences should be here
             if ( no_aln && seq->type == BWA_TYPE_NO_MATCH) continue;
-            bwa_print_sam1(p->bns, seq, 0, opt->mode, opt->max_top2);
+            bwa_print_sesam1(p->bns, seq, opt->mode);
             fflush(stdout);
         }
         bwa_free_read_seq(t->nseqs, t->seqs);
@@ -485,6 +593,7 @@ int bwa_alnse(int argc, char *argv[])
         default: return 1;
         }
     }
+    fprintf(stderr, "MAXLEN: %u\n", opt->max_len);
     //TODO check for correct value of opt->max_len
     if (opte > 0) {
         opt->max_gape = opte;
