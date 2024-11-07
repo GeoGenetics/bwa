@@ -584,7 +584,8 @@ int bwa_alnse(int argc, char *argv[])
         case 'I': opt->mode |= BWA_MODE_IL13;         break;
         case 'Y': opt->mode |= BWA_MODE_CFY;          break;
         case 'B': opt->mode |= atoi(optarg) << 24;    break;
-        case 'J': n_occ = atoi(optarg);               break;
+        case 'J': n_occ = atoi(optarg);
+            opt->max_top2 = n_occ;                    break;
         case 'a': opt->max_len = atoi(optarg);        break;
         case 'r':
             if ((rg_line = bwa_set_rg(optarg)) == 0) return 1;
@@ -593,7 +594,6 @@ int bwa_alnse(int argc, char *argv[])
         default: return 1;
         }
     }
-    fprintf(stderr, "MAXLEN: %u\n", opt->max_len);
     //TODO check for correct value of opt->max_len
     if (opte > 0) {
         opt->max_gape = opte;
