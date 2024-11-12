@@ -59,7 +59,8 @@ void bwa_print_seq(FILE *stream, bwa_seq_t *seq);
 
 void bwa_print_sesam1(const bntseq_t *bns,
                       bwa_seq_t *p,
-                      int mode)
+                      int mode,
+                      int no_aln)
 {
     int j;
     if ( p->type != BWA_TYPE_NO_MATCH ) {
@@ -69,10 +70,11 @@ void bwa_print_sesam1(const bntseq_t *bns,
 
         // get seqid
         nn = bns_cnt_ambi(bns, p->pos, j, &seqid);
-        if ( p->pos + j - bns->anns[seqid].offset > bns->anns[seqid].len )
+        if ( p->pos + j - bns->anns[seqid].offset > bns->anns[seqid].len ) {
             // flag UNMAP as this alignment bridges two adjacent reference sequences
+            if (no_aln) return;
             flag |= SAM_FSU;
-
+        }
         // update flag and print it
         if (p->strand) flag |= SAM_FSR;
         err_printf("%s\t%d\t%s\t", p->name, flag, bns->anns[seqid].name);
@@ -481,7 +483,7 @@ static void *worker_pipeline(void *shared, int step, void *in)
             bwa_seq_t *seq = t->seqs + i;
             //Print only mapped sequences should be here
             if ( no_aln && seq->type == BWA_TYPE_NO_MATCH) continue;
-            bwa_print_sesam1(p->bns, seq, opt->mode);
+            bwa_print_sesam1(p->bns, seq, opt->mode, no_aln);
             fflush(stdout);
         }
         bwa_free_read_seq(t->nseqs, t->seqs);
