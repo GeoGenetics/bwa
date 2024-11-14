@@ -150,86 +150,74 @@ static bwa_seq_t *bwa_read_bam(bwa_seqio_t *bs, int n_needed, int *n, int is_com
 
 bwa_seq_t *bwa_read_seq(bwa_seqio_t *bs, int n_needed, int *n, int mode, int trim_qual)
 {
-    bwa_seq_t *seqs, *p;
-    kseq_t *seq = bs->ks;
-    int n_seqs, l, i;
-    int is_comp = mode&BWA_MODE_COMPREAD, is_64 = mode&BWA_MODE_IL13, l_bc = mode>>24;
-    long n_trimmed = 0, n_tot = 0;
+	bwa_seq_t *seqs, *p;
+	kseq_t *seq = bs->ks;
+	int n_seqs, l, i, is_comp = mode&BWA_MODE_COMPREAD, is_64 = mode&BWA_MODE_IL13, l_bc = mode>>24;
+	long n_trimmed = 0, n_tot = 0;
 
-    if (l_bc > BWA_MAX_BCLEN) {
-        fprintf(stderr, "[%s] the maximum barcode length is %d.\n",
-                __func__,
-                BWA_MAX_BCLEN);
-        return 0;
-    }
-    // l_bc has no effect for BAM input
-    if (bs->is_bam) return bwa_read_bam(bs, n_needed, n, is_comp, trim_qual);
-    n_seqs = 0;
-    seqs = (bwa_seq_t*)calloc(n_needed, sizeof(bwa_seq_t));
-    while ((l = kseq_read(seq)) >= 0) {
-        //if ((mode & BWA_MODE_CFY) && (seq->comment.l != 0)) {
-            // skip reads that are marked to be filtered by Casava
-        //    char *s = index(seq->comment.s, ':');
-        //    if (s && *(++s) == 'Y') {
-        //        continue;
-        //    }
-        //}
-        if (is_64 && seq->qual.l)
-            for (i = 0; i < seq->qual.l; ++i) seq->qual.s[i] -= 31;
-        // sequence length equals or smaller than the barcode length
-        if (seq->seq.l <= l_bc) continue;
-        p = &seqs[n_seqs++];
-        //if (l_bc) { // then trim barcode
-        //    for (i = 0; i < l_bc; ++i)
-        //        p->bc[i] = (seq->qual.l && seq->qual.s[i]-33 < BARCODE_LOW_QUAL)?
-        //                   tolower(seq->seq.s[i]) : toupper(seq->seq.s[i]);
-        //    p->bc[i] = 0;
-        //    for (; i < seq->seq.l; ++i)
-        //        seq->seq.s[i - l_bc] = seq->seq.s[i];
-        //    seq->seq.l -= l_bc;
-        //    seq->seq.s[seq->seq.l] = 0;
-        //    if (seq->qual.l) {
-        //        for (i = l_bc; i < seq->qual.l; ++i)
-        //            seq->qual.s[i - l_bc] = seq->qual.s[i];
-        //        seq->qual.l -= l_bc; seq->qual.s[seq->qual.l] = 0;
-        //    }
-        //    l = seq->seq.l;
-        //}
-        //else
-        p->bc[0] = 0;
-        p->tid = -1; // no assigned to a thread
-        p->qual = 0;
-        p->full_len = p->clip_len = p->len = l;
-        n_tot += p->full_len;
-        p->seq = (ubyte_t*)calloc(p->full_len, 1);
-        for (i = 0; i != p->full_len; ++i)
-            p->seq[i] = nst_nt4_table[(int)seq->seq.s[i]];
-        if (seq->qual.l) { // copy quality
-            p->qual = (ubyte_t*)strdup((char*)seq->qual.s);
-            if (trim_qual >= 1) n_trimmed += bwa_trim_read(trim_qual, p);
-        }
-        p->rseq = (ubyte_t*)calloc(p->full_len, 1);
-        memcpy(p->rseq, p->seq, p->len);
-        // *IMPORTANT*: will be reversed back in bwa_refine_gapped()
-        seq_reverse(p->len, p->seq, 0);
-        seq_reverse(p->len, p->rseq, is_comp);
-        p->name = strdup((const char*)seq->name.s);
-        { // trim /[12]$
-            int t = strlen(p->name);
-            if (t>2 && p->name[t-2]=='/' && (p->name[t-1]=='1' || p->name[t-1]=='2'))
-                p->name[t-2] = '\0';
-        }
-        if (n_seqs == n_needed) break;
-    }
-    *n = n_seqs;
-    if (n_seqs && trim_qual >= 1)
-        fprintf(stderr, "[bwa_read_seq] %.1f%% bases are trimmed.\n",
-                100.0f * n_trimmed/n_tot);
-    if (n_seqs == 0) {
-        free(seqs);
-        return 0;
-    }
-    return seqs;
+	if (l_bc > BWA_MAX_BCLEN) {
+		fprintf(stderr, "[%s] the maximum barcode length is %d.\n", __func__, BWA_MAX_BCLEN);
+		return 0;
+	}
+	if (bs->is_bam) return bwa_read_bam(bs, n_needed, n, is_comp, trim_qual); // l_bc has no effect for BAM input
+	n_seqs = 0;
+	seqs = (bwa_seq_t*)calloc(n_needed, sizeof(bwa_seq_t));
+	while ((l = kseq_read(seq)) >= 0) {
+		if ((mode & BWA_MODE_CFY) && (seq->comment.l != 0)) {
+			// skip reads that are marked to be filtered by Casava
+			char *s = index(seq->comment.s, ':');
+			if (s && *(++s) == 'Y') {
+				continue;
+			}
+		}
+		if (is_64 && seq->qual.l)
+			for (i = 0; i < seq->qual.l; ++i) seq->qual.s[i] -= 31;
+		if (seq->seq.l <= l_bc) continue; // sequence length equals or smaller than the barcode length
+		p = &seqs[n_seqs++];
+		if (l_bc) { // then trim barcode
+			for (i = 0; i < l_bc; ++i)
+				p->bc[i] = (seq->qual.l && seq->qual.s[i]-33 < BARCODE_LOW_QUAL)? tolower(seq->seq.s[i]) : toupper(seq->seq.s[i]);
+			p->bc[i] = 0;
+			for (; i < seq->seq.l; ++i)
+				seq->seq.s[i - l_bc] = seq->seq.s[i];
+			seq->seq.l -= l_bc; seq->seq.s[seq->seq.l] = 0;
+			if (seq->qual.l) {
+				for (i = l_bc; i < seq->qual.l; ++i)
+					seq->qual.s[i - l_bc] = seq->qual.s[i];
+				seq->qual.l -= l_bc; seq->qual.s[seq->qual.l] = 0;
+			}
+			l = seq->seq.l;
+		} else p->bc[0] = 0;
+		p->tid = -1; // no assigned to a thread
+		p->qual = 0;
+		p->full_len = p->clip_len = p->len = l;
+		n_tot += p->full_len;
+		p->seq = (ubyte_t*)calloc(p->full_len, 1);
+		for (i = 0; i != p->full_len; ++i)
+			p->seq[i] = nst_nt4_table[(int)seq->seq.s[i]];
+		if (seq->qual.l) { // copy quality
+			p->qual = (ubyte_t*)strdup((char*)seq->qual.s);
+			if (trim_qual >= 1) n_trimmed += bwa_trim_read(trim_qual, p);
+		}
+		p->rseq = (ubyte_t*)calloc(p->full_len, 1);
+		memcpy(p->rseq, p->seq, p->len);
+		seq_reverse(p->len, p->seq, 0); // *IMPORTANT*: will be reversed back in bwa_refine_gapped()
+		seq_reverse(p->len, p->rseq, is_comp);
+		p->name = strdup((const char*)seq->name.s);
+		{ // trim /[12]$
+			int t = strlen(p->name);
+			if (t > 2 && p->name[t-2] == '/' && (p->name[t-1] == '1' || p->name[t-1] == '2')) p->name[t-2] = '\0';
+		}
+		if (n_seqs == n_needed) break;
+	}
+	*n = n_seqs;
+	if (n_seqs && trim_qual >= 1)
+		fprintf(stderr, "[bwa_read_seq] %.1f%% bases are trimmed.\n", 100.0f * n_trimmed/n_tot);
+	if (n_seqs == 0) {
+		free(seqs);
+		return 0;
+	}
+	return seqs;
 }
 
 void bwa_free_read_seq(int n_seqs, bwa_seq_t *seqs)
@@ -237,10 +225,8 @@ void bwa_free_read_seq(int n_seqs, bwa_seq_t *seqs)
 	int i, j;
 	for (i = 0; i != n_seqs; ++i) {
 		bwa_seq_t *p = seqs + i;
-		for (j = 0; j < p->n_multi; ++j) {
+		for (j = 0; j < p->n_multi; ++j)
 			if (p->multi[j].cigar) free(p->multi[j].cigar);
-      if (p->multi[j].md) free(p->multi[j].md);
-    }
 		free(p->name);
 		free(p->seq); free(p->rseq); free(p->qual); free(p->aln); free(p->md); free(p->multi);
 		free(p->cigar);

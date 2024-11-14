@@ -406,27 +406,27 @@ int bwa_idx2mem(bwaidx_t *idx)
 
 void bwa_print_sam_hdr(const bntseq_t *bns, const char *hdr_line)
 {
-    int i, n_HD = 0, n_SQ = 0;
-    extern char *bwa_pg;
-
-    if (hdr_line) {
-        // check for HD line
-        const char *p = hdr_line;
-        if ((p = strstr(p, "@HD")) != 0) {
-            ++n_HD;
-        }
-        // check for SQ lines
-        p = hdr_line;
-        while ((p = strstr(p, "@SQ\t")) != 0) {
-            if (p == hdr_line || *(p-1) == '\n') ++n_SQ;
-            p += 4;
-        }
-    }
-    if (n_SQ == 0) {
-        for (i = 0; i < bns->n_seqs; ++i) {
-            err_printf("@SQ\tSN:%s\tLN:%d", bns->anns[i].name, bns->anns[i].len);
-            if (bns->anns[i].is_alt) err_printf("\tAH:*\n");
-            else err_fputc('\n', stdout);
+	int i, n_HD = 0, n_SQ = 0;
+	extern char *bwa_pg;
+	
+	if (hdr_line) {
+		// check for HD line
+		const char *p = hdr_line;
+		if ((p = strstr(p, "@HD")) != 0) {
+			++n_HD;
+		}	
+		// check for SQ lines
+		p = hdr_line;
+		while ((p = strstr(p, "@SQ\t")) != 0) {
+			if (p == hdr_line || *(p-1) == '\n') ++n_SQ;
+			p += 4;
+		}
+	}
+	if (n_SQ == 0) {
+		for (i = 0; i < bns->n_seqs; ++i) {
+			err_printf("@SQ\tSN:%s\tLN:%d", bns->anns[i].name, bns->anns[i].len);
+			if (bns->anns[i].is_alt) err_printf("\tAH:*\n");
+			else err_fputc('\n', stdout);
 		}
 	} else if (n_SQ != bns->n_seqs && bwa_verbose >= 2)
 		fprintf(stderr, "[W::%s] %d @SQ lines provided with -H; %d sequences in the index. Continue anyway.\n", __func__, n_SQ, bns->n_seqs);
@@ -455,42 +455,35 @@ static char *bwa_escape(char *s)
 
 char *bwa_set_rg(const char *s)
 {
-    char *p, *q, *r, *rg_line = 0;
-    memset(bwa_rg_id, 0, 256);
-    if (strstr(s, "@RG") != s) {
-        if (bwa_verbose >= 1)
-            fprintf(stderr,
-                    "[E::%s] the read group line is not started with @RG\n",
-                    __func__);
-        goto err_set_rg;
-    }
-    if (strstr(s, "\t") != NULL) {
-        if (bwa_verbose >= 1)
-            fprintf(stderr,
-                    "[E::%s] the read group line contained literal <tab> characters -- replace with escaped tabs: \\t\n",
-                    __func__);
-        goto err_set_rg;
-    }
-    rg_line = strdup(s);
-    bwa_escape(rg_line);
-    if ((p = strstr(rg_line, "\tID:")) == 0) {
-        if (bwa_verbose >= 1)
-            fprintf(stderr, "[E::%s] no ID within the read group line\n", __func__);
-        goto err_set_rg;
-    }
-    p += 4;
-    for (q = p; *q && *q != '\t' && *q != '\n'; ++q);
-    if (q - p + 1 > 256) {
-        if (bwa_verbose >= 1)
-            fprintf(stderr, "[E::%s] @RG:ID is longer than 255 characters\n", __func__);
-        goto err_set_rg;
-    }
-    for (q = p, r = bwa_rg_id; *q && *q != '\t' && *q != '\n'; ++q)
-        *r++ = *q;
-    return rg_line;
-    err_set_rg:
-        free(rg_line);
-        return 0;
+	char *p, *q, *r, *rg_line = 0;
+	memset(bwa_rg_id, 0, 256);
+	if (strstr(s, "@RG") != s) {
+		if (bwa_verbose >= 1) fprintf(stderr, "[E::%s] the read group line is not started with @RG\n", __func__);
+		goto err_set_rg;
+	}
+	if (strstr(s, "\t") != NULL) {
+		if (bwa_verbose >= 1) fprintf(stderr, "[E::%s] the read group line contained literal <tab> characters -- replace with escaped tabs: \\t\n", __func__);
+		goto err_set_rg;
+	}
+	rg_line = strdup(s);
+	bwa_escape(rg_line);
+	if ((p = strstr(rg_line, "\tID:")) == 0) {
+		if (bwa_verbose >= 1) fprintf(stderr, "[E::%s] no ID within the read group line\n", __func__);
+		goto err_set_rg;
+	}
+	p += 4;
+	for (q = p; *q && *q != '\t' && *q != '\n'; ++q);
+	if (q - p + 1 > 256) {
+		if (bwa_verbose >= 1) fprintf(stderr, "[E::%s] @RG:ID is longer than 255 characters\n", __func__);
+		goto err_set_rg;
+	}
+	for (q = p, r = bwa_rg_id; *q && *q != '\t' && *q != '\n'; ++q)
+		*r++ = *q;
+	return rg_line;
+
+err_set_rg:
+	free(rg_line);
+	return 0;
 }
 
 char *bwa_insert_header(const char *s, char *hdr)
