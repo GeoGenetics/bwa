@@ -106,10 +106,16 @@ static inline int int_log2(uint32_t v)
 	return c;
 }
 
-bwt_aln1_t *bwt_match_gap(bwt_t *const bwt, int len, const ubyte_t *seq, bwt_width_t *width,
-						  bwt_width_t *seed_width, const gap_opt_t *opt, int *_n_aln, gap_stack_t *stack)
+bwt_aln1_t *bwt_match_gap(const bwt_t *bwt,
+                          int len,
+                          const ubyte_t *seq,
+                          bwt_width_t *width,
+                          bwt_width_t *seed_width,
+                          const gap_opt_t *opt,
+                          int *_n_aln,
+                          gap_stack_t *stack)
 { // $seq is the reverse complement of the input read
-	int best_score = aln_score(opt->max_diff+1, opt->max_gapo+1, opt->max_gape+1, opt);
+  int best_score = aln_score(opt->max_diff+1, opt->max_gapo+1, opt->max_gape+1, opt);
 	int best_diff = opt->max_diff + 1, max_diff = opt->max_diff;
 	int best_cnt = 0;
 	int max_entries = 0, j, _j, n_aln, m_aln;
@@ -123,13 +129,12 @@ bwt_aln1_t *bwt_match_gap(bwt_t *const bwt, int len, const ubyte_t *seq, bwt_wid
 		if (seq[j] > 3) ++_j;
 	if (_j > max_diff) {
 		*_n_aln = n_aln;
-		return aln;
+    return aln;
 	}
 
 	//for (j = 0; j != len; ++j) printf("#0 %d: [%d,%u]\t[%d,%u]\n", j, w[0][j].bid, w[0][j].w, w[1][j].bid, w[1][j].w);
 	gap_reset_stack(stack); // reset stack
 	gap_push(stack, len, 0, bwt->seq_len, 0, 0, 0, 0, 0, 0, 0, opt);
-
 	while (stack->n_entries) {
 		gap_entry_t e;
 		int i, m, m_seed = 0, hit_found, allow_diff, allow_M, tmp;
@@ -188,7 +193,7 @@ bwt_aln1_t *bwt_match_gap(bwt_t *const bwt, int len, const ubyte_t *seq, bwt_wid
 				}
 				p = aln + n_aln;
 				p->n_mm = e.n_mm; p->n_gapo = e.n_gapo; p->n_gape = e.n_gape;
-				p->n_ins = e.n_ins; p->n_del = e.n_del;
+        p->n_ins = e.n_ins; p->n_del = e.n_del;
 				p->k = k; p->l = l;
 				p->score = score;
 				//fprintf(stderr, "*** n_mm=%d,n_gapo=%d,n_gape=%d,n_ins=%d,n_del=%d\n", e.n_mm, e.n_gapo, e.n_gape, e.n_ins, e.n_del);

@@ -136,7 +136,7 @@ void bwa_cal_pac_pos_core(const bntseq_t *bns, const bwt_t *bwt, bwa_seq_t *seq,
 	seq->seQ = seq->mapQ = bwa_approx_mapQ(seq, max_diff);
 	//fprintf(stderr, "%d\n", seq->ref_shift);
 	seq->pos = bwa_sa2pos(bns, bwt, seq->sa, seq->len + seq->ref_shift, &strand);
-	seq->strand = strand;
+  seq->strand = strand;
 	seq->seQ = seq->mapQ = bwa_approx_mapQ(seq, max_diff);
 	if (seq->pos == (bwtint_t)-1) seq->type = BWA_TYPE_NO_MATCH;
 }
@@ -199,7 +199,7 @@ bwa_cigar_t *bwa_refine_gapped_core(bwtint_t l_pac, const ubyte_t *pacseq, int l
 }
 
 char *bwa_cal_md1(int n_cigar, bwa_cigar_t *cigar, int len, bwtint_t pos, ubyte_t *seq,
-				  bwtint_t l_pac, ubyte_t *pacseq, kstring_t *str, int *_nm)
+				  bwtint_t l_pac, const ubyte_t *pacseq, kstring_t *str, int *_nm)
 {
 	bwtint_t x, y;
 	int z, u, c, nm = 0;
@@ -458,7 +458,7 @@ void bwa_print_sam1(const bntseq_t *bns, bwa_seq_t *p, const bwa_seq_t *mate, in
 				if (p->c1 <= max_top2) err_printf("\tX1:i:%d", p->c2);
 			}
 			err_printf("\tXM:i:%d\tXO:i:%d\tXG:i:%d", p->n_mm, p->n_gapo, p->n_gapo+p->n_gape);
-			if (p->md) err_printf("\tMD:Z:%s", p->md);
+      if (p->md) err_printf("\tMD:Z:%s", p->md);
 			// print multiple hits
 			if (p->n_multi) {
 				err_printf("\tXA:Z:");
@@ -467,13 +467,18 @@ void bwa_print_sam1(const bntseq_t *bns, bwa_seq_t *p, const bwa_seq_t *mate, in
 					int k;
 					j = pos_end_multi(q, p->len) - q->pos;
 					nn = bns_cnt_ambi(bns, q->pos, j, &seqid);
-					err_printf("%s,%c%d,", bns->anns[seqid].name, q->strand? '-' : '+',
+          //Target name and position
+          err_printf("%s,%c%d,", bns->anns[seqid].name, q->strand? '-' : '+',
 						   (int)(q->pos - bns->anns[seqid].offset + 1));
-					if (q->cigar) {
+          //cigar
+          if (q->cigar) {
 						for (k = 0; k < q->n_cigar; ++k)
 							err_printf("%d%c", __cigar_len(q->cigar[k]), "MIDS"[__cigar_op(q->cigar[k])]);
 					} else err_printf("%dM", p->len);
-					err_printf(",%d;", q->gap + q->mm);
+          //Edit distnce
+          if (q->md) err_printf(",%s", q->md);
+          else err_printf(",%d", p->len);
+          err_printf(",%d;", q->gap + q->mm);
 				}
 			}
 		}

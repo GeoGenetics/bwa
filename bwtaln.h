@@ -61,6 +61,8 @@ typedef struct {
 	int ref_shift;
 	bwtint_t pos;
 	bwa_cigar_t *cigar;
+  //Adding MD field to XA tag TODO Change to CS tag https://github.com/lh3/minimap2#cs
+  char *md;
 } bwt_multi1_t;
 
 typedef struct {
@@ -109,7 +111,8 @@ typedef struct {
 	float fnr;
 	int max_diff, max_gapo, max_gape;
 	int max_seed_diff, seed_len;
-	int n_threads;
+  int max_len;
+  int n_threads;
 	int max_top2;
 	int trim_qual;
 } gap_opt_t;

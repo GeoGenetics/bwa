@@ -1,16 +1,41 @@
-[![Build Status](https://github.com/lh3/bwa/actions/workflows/ci.yaml/badge.svg)](https://github.com/lh3/bwa/actions)
-[![SourceForge Downloads](https://img.shields.io/sourceforge/dt/bio-bwa.svg?label=SF%20downloads)](https://sourceforge.net/projects/bio-bwa/files/?source=navbar)
-[![GitHub Downloads](https://img.shields.io/github/downloads/lh3/bwa/total.svg?style=flat&label=GitHub%20downloads)](https://github.com/lh3/bwa/releases)
-[![BioConda Install](https://img.shields.io/conda/dn/bioconda/bwa.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/bwa)
-
+    
 **Note: [minimap2][minimap2] has replaced BWA-MEM for __PacBio and Nanopore__ read
 alignment.** It retains all major BWA-MEM features, but is ~50 times as fast,
 more versatile, more accurate and produces better base-level alignment.
 A beta version of [BWA-MEM2][bwa-mem2] has been released for short-read mapping.
 BWA-MEM2 is about twice as fast as BWA-MEM and outputs near identical alignments.
 
-[minimap2]: https://github.com/lh3/minimap2
-[bwa-mem2]: https://github.com/bwa-mem2/bwa-mem2
+## About this fork
+
+This fork of BWA is targeted at aligning short DNA sequences against large reference
+collections. More specifically, this version of BWA is optimized for ancient environmental
+DNA (aeDNA) sequencing data. Here, all aspects of BWA remain the same and can be used as
+always. In this forked version you will find the command "alnse". Briefly, this new command
+combines the functionality of the "aln" and "samse" commands to generate alignments of
+single end sequencing data in the SAM format.
+
+## aeDNA optimizations
+
+The optimizations included so far are not algorithmic, "bwa alnse" uses the same
+methodology as "bwa aln". Nevertheless, the threading model has been modified for better
+use of CPU resources.
+A big difference between "aln + samse" and "alnse" lies in the way "alnse" reports extra
+hits of any given query. In aeDNA the origin of any DNA fragment is unknown and often, a
+suitable reference is not included in the reference collection. This leads to a
+situation where a query may have equally good alignments to many different references.
+"bwa alnse" reports up to "-J <int>" hits in descending score. Only the first occurrence
+of the best scoring alignment is reported as the main alignment with all other hist being
+reported in the XA tag in the following format: target,+|-position,CIGAR,MD,NM
+
+   target - reference sequence name
+   +|-position - strand and 0 based position
+   CIGAR - Cigar string
+   MD - MD string
+   NM - Edit distance
+   
+    A00706:808:HTMGNDSX5:1:1101:2591:1407   0       CP048817.1      3843447 17
+        40M     *       0       0       GCGCTGGATCTCGACCTTGTCGTCGGTGGTCGTCAGCACC  FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF        XT:A:U  NM:i:1  X0:i:1    X1:i:4  XM:i:1  XO:i:0  XG:i:0  MD:Z:30G9       XA:Z:CP000781.1,+2607402,40M,9T2C27,2;CP065670.1,+2082852,40M,30G8G0,2;CP065713.1,+1102186,40M,30G8G0,2;AP023323.1,+2878510,40M,30G8G0,2;
+
 
 ## Getting started
 
@@ -19,7 +44,9 @@ BWA-MEM2 is about twice as fast as BWA-MEM and outputs near identical alignments
 	./bwa index ref.fa
 	./bwa mem ref.fa read-se.fq.gz | gzip -3 > aln-se.sam.gz
 	./bwa mem ref.fa read1.fq read2.fq | gzip -3 > aln-pe.sam.gz
-
+    #aeDNA
+    ./bwa alnse ref.fa read-se.fq > aln-se.sam
+    
 ## Introduction
 
 BWA is a software package for mapping DNA sequences against a large reference
