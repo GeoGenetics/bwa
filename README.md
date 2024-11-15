@@ -20,11 +20,14 @@ situation where a query may have equally good alignments to many different refer
 of the best scoring alignment is reported as the main alignment with all other hist being
 reported in the XA tag in the following format: target,+|-position,CIGAR,MD,NM
 
-   target - reference sequence name
-   +|-position - strand and 0 based position
-   CIGAR - Cigar string
-   MD - MD string
-   NM - Edit distance
+   tag|description
+   ---|---
+   target|reference sequence name
+   +\|-position|strand and 0 based position
+   CIGAR|Cigar string
+   MD|MD string
+   NM|Edit distance
+
    
     A00706:808:HTMGNDSX5:1:1101:2591:1407	0	CP048817.1	3843447 17	40M     *       0       0       GCGCTGGATCTCGACCTTGTCGTCGGTGGTCGTCAGCACC  FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF        XT:A:U  NM:i:1  X0:i:1    X1:i:4  XM:i:1  XO:i:0  XG:i:0  MD:Z:30G9       XA:Z:CP000781.1,+2607402,40M,9T2C27,2;CP065670.1,+2082852,40M,30G8G0,2;CP065713.1,+1102186,40M,30G8G0,2;AP023323.1,+2878510,40M,30G8G0,2;
 
